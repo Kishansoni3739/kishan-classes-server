@@ -1,0 +1,39 @@
+{
+  "settings": {
+    "coachingName": "KISHAN CLASSES",
+    "address": "Gautam Nagar, Agra",
+    "phone": "+91 9389915375",
+    "logo": "",
+    "feeDueDay": 5,
+    "subjects": [
+      "Maths",
+      "Science",
+      "English",
+      "Physics",
+      "Chemistry",
+      "Biology",
+      "History",
+      "Geography"
+    ],
+    "gradeBoundaries": {
+      "aPlus": 90,
+      "a": 80,
+      "b": 70,
+      "c": 55,
+      "d": 40
+    },
+    "academicYear": "2026-2027",
+    "templates": {
+      "feeReminder": "Dear [ParentName], this is a reminder that [StudentName]'s tuition fee of Rs [Amount] for [Month] is due on [DueDate]. Please pay at the earliest. - [CoachingName]",
+      "scoreReport": "Dear [ParentName], [StudentName] scored [Marks]/[MaxMarks] ([Grade]) in [Subject] - [TestName] held on [Date]. Teacher's Remark: [Remark] Keep encouraging your child! - [CoachingName]"
+    }
+  },
+  "batches": [],
+  "students": [],
+  "feeRecords": [],
+  "tests": [],
+  "notificationLogs": [],
+  "_meta": {
+    "updatedAt": "2026-05-18T04:21:24.104Z"
+  }
+}
