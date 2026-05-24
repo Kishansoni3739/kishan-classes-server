@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url";
 import dns from "node:dns";
 import mongoose from "mongoose";
 import cors from "cors";
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
 
 // Force Google DNS to fix broken SRV lookups on some networks
 // dns.setServers(["8.8.8.8", "8.8.4.4"]);
@@ -16,6 +18,7 @@ const dataDir = path.join(__dirname, "data");
 const PORT = Number(process.env.PORT || 4000);
 const MONGO_URI = process.env.MONGO_URI;
 const DB_NAME = process.env.MONGO_DB_NAME || "coaching-center";
+const JWT_SECRET = process.env.JWT_SECRET || "fallback_secret_for_dev_only";
 
 if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true });
@@ -139,12 +142,23 @@ const notificationLogSchema = new mongoose.Schema(
 );
 notificationLogSchema.index({ studentId: 1 });
 
+const userSchema = new mongoose.Schema(
+  {
+    username: { type: String, required: true, unique: true },
+    passwordHash: { type: String, required: true },
+    role: { type: String, enum: ["admin", "student"], required: true },
+    studentId: { type: String }, // For students, links to Student.id
+  },
+  { timestamps: true }
+);
+
 const Settings = mongoose.model("Setting", settingsSchema);
 const Student = mongoose.model("Student", studentSchema);
 const Batch = mongoose.model("Batch", batchSchema);
 const FeeRecord = mongoose.model("FeeRecord", feeRecordSchema);
 const Test = mongoose.model("Test", testSchema);
 const NotificationLog = mongoose.model("NotificationLog", notificationLogSchema);
+const User = mongoose.model("User", userSchema);
 
 // ─────────────────────────────────────────────────────────
 // Helpers
@@ -386,6 +400,35 @@ async function writeState(state) {
   }
 
   await Promise.all(ops);
+
+  // Sync student users
+  try {
+    const currentUsers = await User.find({ role: "student" });
+    const currentUserMap = new Map(currentUsers.map((u) => [u.studentId, u]));
+    const studentUserOps = [];
+    for (const s of students) {
+      if (!currentUserMap.has(s.id)) {
+        const defaultPassword = s.contactNumber || "password123";
+        const hash = await bcrypt.hash(defaultPassword, 10);
+        studentUserOps.push({
+          insertOne: {
+            document: {
+              username: s.studentId,
+              passwordHash: hash,
+              role: "student",
+              studentId: s.id,
+            },
+          },
+        });
+      }
+    }
+    if (studentUserOps.length > 0) {
+      await User.bulkWrite(studentUserOps);
+    }
+  } catch (err) {
+    console.error("Failed to sync student users:", err);
+  }
+
   return state;
 }
 
@@ -434,6 +477,59 @@ app.use(cors({
 }));
 app.use(express.json({ limit: "12mb" }));
 
+// ─────────────────────────────────────────────────────────
+// Middlewares
+// ─────────────────────────────────────────────────────────
+
+function authMiddleware(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+  const token = authHeader.split(" ")[1];
+  try {
+    const payload = jwt.verify(token, JWT_SECRET);
+    req.user = payload;
+    next();
+  } catch (err) {
+    return res.status(401).json({ error: "Invalid token" });
+  }
+}
+
+function adminOnly(req, res, next) {
+  if (!req.user || req.user.role !== "admin") {
+    return res.status(403).json({ error: "Forbidden: Admin only" });
+  }
+  next();
+}
+
+// ─────────────────────────────────────────────────────────
+// Auth Routes
+// ─────────────────────────────────────────────────────────
+
+app.post("/api/auth/login", async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    const user = await User.findOne({ username });
+    if (!user) return res.status(401).json({ error: "Invalid credentials" });
+
+    const isMatch = await bcrypt.compare(password, user.passwordHash);
+    if (!isMatch) return res.status(401).json({ error: "Invalid credentials" });
+
+    const payload = { id: user._id, username: user.username, role: user.role, studentId: user.studentId };
+    const token = jwt.sign(payload, JWT_SECRET, { expiresIn: "30d" });
+
+    res.json({ token, user: payload });
+  } catch (err) {
+    console.error("Login error:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.get("/api/auth/me", authMiddleware, (req, res) => {
+  res.json({ user: req.user });
+});
+
 app.get("/api/health", async (_req, res) => {
   try {
     const [studentCount, batchCount, feeCount, testCount, logCount] = await Promise.all([
@@ -454,17 +550,36 @@ app.get("/api/health", async (_req, res) => {
   }
 });
 
-app.get("/api/state", async (_req, res) => {
+app.get("/api/state", authMiddleware, async (req, res) => {
   try {
     const state = await readState();
-    return res.json(state || emptyState());
+    const resultState = state || emptyState();
+    
+    if (req.user.role === "student") {
+      const studentDbId = req.user.studentId;
+      const student = resultState.students.find(s => s.id === studentDbId);
+      const feeRecords = resultState.feeRecords.filter(f => f.studentId === studentDbId);
+      const tests = resultState.tests.filter(t => t.studentId === studentDbId);
+      const batch = student ? resultState.batches.find(b => b.id === student.batchId) : null;
+      
+      return res.json({
+        ...resultState,
+        students: student ? [student] : [],
+        feeRecords,
+        tests,
+        batches: batch ? [batch] : [],
+        notificationLogs: []
+      });
+    }
+
+    return res.json(resultState);
   } catch (error) {
     console.error("GET /api/state error:", error);
     return res.status(500).json({ error: "Failed to read state from MongoDB" });
   }
 });
 
-app.put("/api/state", async (req, res) => {
+app.put("/api/state", authMiddleware, adminOnly, async (req, res) => {
   try {
     const validationError = validateStateShape(req.body);
     if (validationError) {
@@ -478,7 +593,7 @@ app.put("/api/state", async (req, res) => {
   }
 });
 
-app.post("/api/reset-demo", async (_req, res) => {
+app.post("/api/reset-demo", authMiddleware, adminOnly, async (req, res) => {
   try {
     const reset = await writeState(demoState());
     res.json(reset);
@@ -488,14 +603,15 @@ app.post("/api/reset-demo", async (_req, res) => {
   }
 });
 
-app.delete("/api/students/:id", async (req, res) => {
+app.delete("/api/students/:id", authMiddleware, adminOnly, async (req, res) => {
   try {
     const { id } = req.params;
     await Promise.all([
       Student.deleteOne({ id }),
       FeeRecord.deleteMany({ studentId: id }),
       Test.deleteMany({ studentId: id }),
-      NotificationLog.deleteMany({ studentId: id })
+      NotificationLog.deleteMany({ studentId: id }),
+      User.deleteOne({ studentId: id })
     ]);
     res.json({ ok: true });
   } catch (error) {
@@ -504,7 +620,7 @@ app.delete("/api/students/:id", async (req, res) => {
   }
 });
 
-app.delete("/api/notification-logs/:id", async (req, res) => {
+app.delete("/api/notification-logs/:id", authMiddleware, adminOnly, async (req, res) => {
   try {
     const { id } = req.params;
     await NotificationLog.deleteOne({ id });
@@ -527,6 +643,14 @@ async function start() {
     console.log("Connecting to MongoDB Atlas...");
     await mongoose.connect(MONGO_URI, { dbName: DB_NAME });
     console.log(`✓ MongoDB Atlas connected — database: ${DB_NAME}`);
+
+    // Seed admin
+    const adminCount = await User.countDocuments({ role: "admin" });
+    if (adminCount === 0) {
+      const hash = await bcrypt.hash("admin123", 10);
+      await User.create({ username: "admin", passwordHash: hash, role: "admin" });
+      console.log("  → Default admin created (admin/admin123)");
+    }
 
     // Show collection counts
     const counts = {
