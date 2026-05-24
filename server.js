@@ -408,7 +408,9 @@ function validateStateShape(body) {
 // ─────────────────────────────────────────────────────────
 
 const app = express();
-app.use(cors());
+app.use(cors({
+  origin:"https://kishan-classes.vercel.app"
+}));
 app.use(express.json({ limit: "12mb" }));
 
 app.get("/api/health", async (_req, res) => {
