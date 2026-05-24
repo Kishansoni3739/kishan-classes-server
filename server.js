@@ -415,11 +415,12 @@ app.use(cors({
 
     const allowedOrigins = [
       process.env.FRONTEND_URL,
+      "https://localhost",           // Capacitor Android with androidScheme: "https"
       "http://localhost",
       "http://localhost:5173",
       "http://localhost:4173",
       "capacitor://localhost",
-      "http://10.0.2.2",          // Android emulator
+      "http://10.0.2.2",            // Android emulator
     ].filter(Boolean); // Remove undefined entries (e.g. if FRONTEND_URL is not set)
 
     if (allowedOrigins.some((allowed) => origin.startsWith(allowed))) {
