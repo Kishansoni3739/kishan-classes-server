@@ -8,7 +8,7 @@ import mongoose from "mongoose";
 import cors from "cors";
 
 // Force Google DNS to fix broken SRV lookups on some networks
-dns.setServers(["8.8.8.8", "8.8.4.4"]);
+// dns.setServers(["8.8.8.8", "8.8.4.4"]);
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
