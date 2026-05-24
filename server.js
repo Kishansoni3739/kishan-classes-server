@@ -408,7 +408,13 @@ async function writeState(state) {
     const studentUserOps = [];
     for (const s of students) {
       if (!currentUserMap.has(s.id)) {
-        const defaultPassword = s.contactNumber || "password123";
+        let defaultPassword = s.contactNumber || "password123";
+        if (s.dateOfBirth) {
+          const parts = s.dateOfBirth.split("-");
+          if (parts.length === 3) {
+            defaultPassword = parts[2] + parts[1] + parts[0]; // DDMMYYYY
+          }
+        }
         const hash = await bcrypt.hash(defaultPassword, 10);
         studentUserOps.push({
           insertOne: {
@@ -510,7 +516,8 @@ function adminOnly(req, res, next) {
 app.post("/api/auth/login", async (req, res) => {
   try {
     const { username, password } = req.body;
-    const user = await User.findOne({ username });
+    // Case-insensitive exact match
+    const user = await User.findOne({ username: new RegExp(`^${username}$`, "i") });
     if (!user) return res.status(401).json({ error: "Invalid credentials" });
 
     const isMatch = await bcrypt.compare(password, user.passwordHash);
@@ -528,6 +535,23 @@ app.post("/api/auth/login", async (req, res) => {
 
 app.get("/api/auth/me", authMiddleware, (req, res) => {
   res.json({ user: req.user });
+});
+
+app.put("/api/auth/update-admin", authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    if (!username || !password) {
+      return res.status(400).json({ error: "Username and password are required" });
+    }
+
+    const hash = await bcrypt.hash(password, 10);
+    await User.findByIdAndUpdate(req.user.id, { username, passwordHash: hash });
+
+    res.json({ ok: true, message: "Admin credentials updated" });
+  } catch (error) {
+    console.error("Update admin error:", error);
+    res.status(500).json({ error: "Failed to update admin credentials" });
+  }
 });
 
 app.get("/api/health", async (_req, res) => {
@@ -666,6 +690,36 @@ async function start() {
       console.log("  → Empty database. Loading demo data...");
       await writeState(demoState());
       console.log("  ✓ Demo data loaded!");
+    } else {
+      // Temporarily sync all student passwords to DOB for existing data
+      console.log("  → Syncing student passwords to DOB...");
+      await User.deleteMany({ role: "student" });
+      const allStudents = await Student.find({}).lean();
+      const studentUserOps = [];
+      for (const s of allStudents) {
+        let defaultPassword = s.contactNumber || "password123";
+        if (s.dateOfBirth) {
+          const parts = s.dateOfBirth.split("-");
+          if (parts.length === 3) {
+            defaultPassword = parts[2] + parts[1] + parts[0]; // DDMMYYYY
+          }
+        }
+        const hash = await bcrypt.hash(defaultPassword, 10);
+        studentUserOps.push({
+          insertOne: {
+            document: {
+              username: s.studentId,
+              passwordHash: hash,
+              role: "student",
+              studentId: s.id,
+            },
+          },
+        });
+      }
+      if (studentUserOps.length > 0) {
+        await User.bulkWrite(studentUserOps);
+        console.log(`  ✓ Recreated ${studentUserOps.length} student users with DOB passwords`);
+      }
     }
 
     app.listen(PORT, () => {
