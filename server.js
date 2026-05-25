@@ -129,6 +129,20 @@ const testSchema = new mongoose.Schema(
 );
 testSchema.index({ studentId: 1 });
 
+const scheduledTestSchema = new mongoose.Schema(
+  {
+    id: { type: String, required: true, unique: true },
+    studentId: { type: String, required: true },
+    batchId: String,
+    subject: String,
+    testName: String,
+    testDate: String,
+    maxMarks: Number,
+  },
+  { strict: false, timestamps: true },
+);
+scheduledTestSchema.index({ studentId: 1 });
+
 const notificationLogSchema = new mongoose.Schema(
   {
     id: { type: String, required: true, unique: true },
@@ -157,6 +171,7 @@ const Student = mongoose.model("Student", studentSchema);
 const Batch = mongoose.model("Batch", batchSchema);
 const FeeRecord = mongoose.model("FeeRecord", feeRecordSchema);
 const Test = mongoose.model("Test", testSchema);
+const ScheduledTest = mongoose.model("ScheduledTest", scheduledTestSchema);
 const NotificationLog = mongoose.model("NotificationLog", notificationLogSchema);
 const User = mongoose.model("User", userSchema);
 
@@ -232,6 +247,7 @@ function emptyState() {
     students: [],
     feeRecords: [],
     tests: [],
+    scheduledTests: [],
     notificationLogs: [],
   };
 }
@@ -270,6 +286,7 @@ function demoState() {
 
   const feeRecords = [];
   const tests = [];
+  const scheduledTests = [];
   const notificationLogs = [];
   const now = new Date();
   const testNames = ["Unit Test 1", "Unit Test 2", "Practice Quiz", "Mock Exam", "Revision Test"];
@@ -320,7 +337,9 @@ function demoState() {
     );
   });
 
-  return { settings, batches, students, feeRecords, tests, notificationLogs };
+  });
+
+  return { settings, batches, students, feeRecords, tests, scheduledTests, notificationLogs };
 }
 
 // ─────────────────────────────────────────────────────────
@@ -339,12 +358,13 @@ function stripMongoFields(doc) {
 }
 
 async function readState() {
-  const [settingsDoc, students, batches, feeRecords, tests, notificationLogs] = await Promise.all([
+  const [settingsDoc, students, batches, feeRecords, tests, scheduledTests, notificationLogs] = await Promise.all([
     Settings.findOne({ key: "main" }).lean(),
     Student.find({}).lean(),
     Batch.find({}).lean(),
     FeeRecord.find({}).lean(),
     Test.find({}).lean(),
+    ScheduledTest.find({}).lean(),
     NotificationLog.find({}).lean(),
   ]);
 
@@ -356,12 +376,13 @@ async function readState() {
     batches: batches.map(stripMongoFields),
     feeRecords: feeRecords.map(stripMongoFields),
     tests: tests.map(stripMongoFields),
+    scheduledTests: scheduledTests.map(stripMongoFields),
     notificationLogs: notificationLogs.map(stripMongoFields),
   };
 }
 
 async function writeState(state) {
-  const { settings = {}, students = [], batches = [], feeRecords = [], tests = [], notificationLogs = [] } = state;
+  const { settings = {}, students = [], batches = [], feeRecords = [], tests = [], scheduledTests = [], notificationLogs = [] } = state;
 
   // Run all collection writes in parallel
   const ops = [
@@ -378,6 +399,7 @@ async function writeState(state) {
     { Model: Batch, docs: batches },
     { Model: FeeRecord, docs: feeRecords },
     { Model: Test, docs: tests },
+    { Model: ScheduledTest, docs: scheduledTests },
     { Model: NotificationLog, docs: notificationLogs },
   ];
 
@@ -448,6 +470,7 @@ function validateStateShape(body) {
   if (!Array.isArray(body.batches)) return "batches must be an array";
   if (!Array.isArray(body.feeRecords)) return "feeRecords must be an array";
   if (!Array.isArray(body.tests)) return "tests must be an array";
+  if (!Array.isArray(body.scheduledTests)) return "scheduledTests must be an array";
   if (!Array.isArray(body.notificationLogs)) return "notificationLogs must be an array";
   return null;
 }
@@ -634,6 +657,7 @@ app.delete("/api/students/:id", authMiddleware, adminOnly, async (req, res) => {
       Student.deleteOne({ id }),
       FeeRecord.deleteMany({ studentId: id }),
       Test.deleteMany({ studentId: id }),
+      ScheduledTest.deleteMany({ studentId: id }),
       NotificationLog.deleteMany({ studentId: id }),
       User.deleteOne({ studentId: id })
     ]);
