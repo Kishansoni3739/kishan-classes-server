@@ -337,8 +337,6 @@ function demoState() {
     );
   });
 
-  });
-
   return { settings, batches, students, feeRecords, tests, scheduledTests, notificationLogs };
 }
 
