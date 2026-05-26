@@ -607,13 +607,15 @@ app.get("/api/state", authMiddleware, async (req, res) => {
       const tests = resultState.tests.filter(t => t.studentId === studentDbId);
       const batch = student ? resultState.batches.find(b => b.id === student.batchId) : null;
       
+      const scheduledTests = resultState.scheduledTests.filter(t => t.studentId === studentDbId);
       return res.json({
         ...resultState,
         students: student ? [student] : [],
         feeRecords,
         tests,
         batches: batch ? [batch] : [],
-        notificationLogs: []
+        notificationLogs: [],
+        scheduledTests
       });
     }
 
