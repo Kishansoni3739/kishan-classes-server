@@ -160,7 +160,7 @@ const userSchema = new mongoose.Schema(
   {
     username: { type: String, required: true, unique: true },
     passwordHash: { type: String, required: true },
-    role: { type: String, enum: ["admin", "student"], required: true },
+    role: { type: String, enum: ["admin", "student", "testuser"], required: true },
     studentId: { type: String }, // For students, links to Student.id
   },
   { timestamps: true }
@@ -524,8 +524,11 @@ function authMiddleware(req, res, next) {
 }
 
 function adminOnly(req, res, next) {
-  if (!req.user || req.user.role !== "admin") {
+  if (!req.user || (req.user.role !== "admin" && req.user.role !== "testuser")) {
     return res.status(403).json({ error: "Forbidden: Admin only" });
+  }
+  if (req.user.role === "testuser" && req.method !== "GET") {
+    return res.status(403).json({ error: "Test User can't do this action." });
   }
   next();
 }
@@ -600,6 +603,17 @@ app.get("/api/state", authMiddleware, async (req, res) => {
     const state = await readState();
     const resultState = state || emptyState();
     
+    if (req.user.role === "testuser") {
+      const demo = demoState();
+      demo.students = demo.students.slice(0, 4);
+      const studentIds = demo.students.map(s => s.id);
+      demo.feeRecords = demo.feeRecords.filter(f => studentIds.includes(f.studentId));
+      demo.tests = demo.tests.filter(t => studentIds.includes(t.studentId));
+      demo.scheduledTests = demo.scheduledTests.filter(t => studentIds.includes(t.studentId));
+      demo.notificationLogs = demo.notificationLogs.filter(n => studentIds.includes(n.studentId));
+      return res.json(demo);
+    }
+
     if (req.user.role === "student") {
       const studentDbId = req.user.studentId;
       const student = resultState.students.find(s => s.id === studentDbId);
@@ -698,6 +712,13 @@ async function start() {
       const hash = await bcrypt.hash("admin123", 10);
       await User.create({ username: "admin", passwordHash: hash, role: "admin" });
       console.log("  → Default admin created (admin/admin123)");
+    }
+
+    const testUserCount = await User.countDocuments({ role: "testuser" });
+    if (testUserCount === 0) {
+      const hash = await bcrypt.hash("test1234", 10);
+      await User.create({ username: "testuser", passwordHash: hash, role: "testuser" });
+      console.log("  → Default testuser created (testuser/test1234)");
     }
 
     // Show collection counts
