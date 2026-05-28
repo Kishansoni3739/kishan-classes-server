@@ -616,18 +616,30 @@ app.get("/api/state", authMiddleware, async (req, res) => {
 
     if (req.user.role === "student") {
       const studentDbId = req.user.studentId;
-      const student = resultState.students.find(s => s.id === studentDbId);
-      const feeRecords = resultState.feeRecords.filter(f => f.studentId === studentDbId);
-      const tests = resultState.tests.filter(t => t.studentId === studentDbId);
-      const batch = student ? resultState.batches.find(b => b.id === student.batchId) : null;
+      const loggedInStudent = resultState.students.find(s => s.id === studentDbId);
       
-      const scheduledTests = resultState.scheduledTests.filter(t => t.studentId === studentDbId);
+      let linkedStudents = [];
+      if (loggedInStudent && loggedInStudent.contactNumber) {
+        linkedStudents = resultState.students.filter(s => s.contactNumber === loggedInStudent.contactNumber);
+      } else if (loggedInStudent) {
+        linkedStudents = [loggedInStudent];
+      }
+      
+      const linkedStudentIds = linkedStudents.map(s => s.id);
+      
+      const feeRecords = resultState.feeRecords.filter(f => linkedStudentIds.includes(f.studentId));
+      const tests = resultState.tests.filter(t => linkedStudentIds.includes(t.studentId));
+      const scheduledTests = resultState.scheduledTests.filter(t => linkedStudentIds.includes(t.studentId));
+      
+      const batchIds = [...new Set(linkedStudents.map(s => s.batchId))];
+      const batches = resultState.batches.filter(b => batchIds.includes(b.id));
+
       return res.json({
         ...resultState,
-        students: student ? [student] : [],
+        students: linkedStudents,
         feeRecords,
         tests,
-        batches: batch ? [batch] : [],
+        batches,
         notificationLogs: [],
         scheduledTests
       });
