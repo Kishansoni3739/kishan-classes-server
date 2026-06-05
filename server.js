@@ -1016,6 +1016,165 @@ app.post("/api/message-templates/:id/reset", authMiddleware, adminOnly, async (r
   }
 });
 
+app.get("/api/analytics/:studentId", authMiddleware, async (req, res) => {
+  try {
+    const studentId = req.params.studentId;
+
+    if (req.user.role === "testuser") {
+      return res.json({
+        summary: {
+          studentName: "Demo Student", studentId: "CC-DEMO", classGrade: "Class 10", batchName: "Demo Batch",
+          totalTestsAttempted: 12, overallAverage: 82, currentRank: 2, bestSubject: "Maths", weakestSubject: "Physics", improvementPercentage: 5
+        },
+        growthTrend: [
+          { testName: "Unit Test 1", date: "2026-02-15", percentage: 75 },
+          { testName: "Mid Term", date: "2026-03-20", percentage: 80 },
+          { testName: "Unit Test 2", date: "2026-04-10", percentage: 85 }
+        ],
+        subjectPerformance: [
+          { subject: "Maths", score: 90 }, { subject: "Science", score: 85 }, { subject: "Physics", score: 70 }
+        ],
+        batchComparison: [
+          { subject: "Maths", studentScore: 90, batchAvg: 75 },
+          { subject: "Science", studentScore: 85, batchAvg: 80 },
+          { subject: "Physics", studentScore: 70, batchAvg: 72 }
+        ],
+        insights: {
+          strengths: ["Maths is consistently strong.", "Performance is improving steadily."],
+          needsImprovement: ["Physics is below the batch average."],
+          achievements: ["Ranked top 3 in the batch!", "Overall percentage increased by 5%."]
+        }
+      });
+    }
+
+    const student = await Student.findOne({ id: studentId }).lean();
+    if (!student) return res.status(404).json({ error: "Student not found" });
+
+    const batch = await Batch.findOne({ id: student.batchId }).lean();
+    
+    // Fetch all tests for this student
+    const studentTests = await Test.find({ studentId }).sort({ testDate: 1 }).lean();
+    
+    // Fetch all tests for the entire batch
+    const batchTests = await Test.find({ batchId: student.batchId }).lean();
+    
+    // Calculate Student Overall Average
+    const studentAverage = studentTests.length 
+      ? Math.round(studentTests.reduce((sum, t) => sum + (t.marksObtained / t.maxMarks) * 100, 0) / studentTests.length)
+      : 0;
+      
+    // Calculate Student Growth Trend
+    const growthTrend = studentTests.map(t => ({
+      testName: t.testName,
+      date: t.testDate,
+      percentage: Math.round((t.marksObtained / t.maxMarks) * 100)
+    }));
+    
+    // Calculate Subject Performance
+    const subjectsMap = {};
+    studentTests.forEach(t => {
+      if (!subjectsMap[t.subject]) subjectsMap[t.subject] = { sum: 0, count: 0 };
+      subjectsMap[t.subject].sum += (t.marksObtained / t.maxMarks) * 100;
+      subjectsMap[t.subject].count += 1;
+    });
+    
+    const subjectPerformance = Object.keys(subjectsMap).map(sub => ({
+      subject: sub,
+      score: Math.round(subjectsMap[sub].sum / subjectsMap[sub].count)
+    }));
+    
+    // Calculate Batch Comparison
+    const batchSubjectsMap = {};
+    batchTests.forEach(t => {
+      if (!batchSubjectsMap[t.subject]) batchSubjectsMap[t.subject] = { sum: 0, count: 0 };
+      batchSubjectsMap[t.subject].sum += (t.marksObtained / t.maxMarks) * 100;
+      batchSubjectsMap[t.subject].count += 1;
+    });
+    
+    const batchComparison = subjectPerformance.map(sp => ({
+      subject: sp.subject,
+      studentScore: sp.score,
+      batchAvg: batchSubjectsMap[sp.subject] ? Math.round(batchSubjectsMap[sp.subject].sum / batchSubjectsMap[sp.subject].count) : 0
+    }));
+    
+    // Calculate Rank
+    const batchStudentsMap = {};
+    batchTests.forEach(t => {
+      if (!batchStudentsMap[t.studentId]) batchStudentsMap[t.studentId] = { sum: 0, count: 0 };
+      batchStudentsMap[t.studentId].sum += (t.marksObtained / t.maxMarks) * 100;
+      batchStudentsMap[t.studentId].count += 1;
+    });
+    
+    const batchAverages = Object.keys(batchStudentsMap).map(sId => ({
+      studentId: sId,
+      avg: Math.round(batchStudentsMap[sId].sum / batchStudentsMap[sId].count)
+    })).sort((a, b) => b.avg - a.avg);
+    
+    let currentRank = 0;
+    const rankIndex = batchAverages.findIndex(s => s.studentId === studentId);
+    if (rankIndex !== -1) currentRank = rankIndex + 1;
+    
+    // Determine Best and Weakest Subject
+    let bestSubject = "N/A";
+    let weakestSubject = "N/A";
+    if (subjectPerformance.length > 0) {
+      const sorted = [...subjectPerformance].sort((a, b) => b.score - a.score);
+      bestSubject = sorted[0].subject;
+      weakestSubject = sorted[sorted.length - 1].subject;
+    }
+    
+    // Calculate improvement percentage
+    let improvementPercentage = 0;
+    if (growthTrend.length >= 2) {
+      const first = growthTrend[0].percentage;
+      const last = growthTrend[growthTrend.length - 1].percentage;
+      improvementPercentage = last - first;
+    }
+    
+    // Generate Insights
+    const strengths = [];
+    const needsImprovement = [];
+    const achievements = [];
+    
+    if (bestSubject !== "N/A") strengths.push(`${bestSubject} is consistently strong.`);
+    if (improvementPercentage > 0) strengths.push("Performance is improving steadily.");
+    
+    subjectPerformance.forEach(sp => {
+      if (sp.score < studentAverage - 5) needsImprovement.push(`${sp.subject} is below overall average.`);
+      const bAvg = batchComparison.find(b => b.subject === sp.subject)?.batchAvg || 0;
+      if (bAvg > 0 && sp.score < bAvg - 5) needsImprovement.push(`${sp.subject} is below the batch average.`);
+    });
+    if (needsImprovement.length === 0 && studentTests.length > 0) needsImprovement.push("No major weaknesses identified! Keep it up.");
+    
+    if (currentRank > 0 && currentRank <= 3) achievements.push(`Ranked top 3 in the batch!`);
+    if (improvementPercentage > 5) achievements.push(`Overall percentage increased by ${improvementPercentage}%.`);
+    
+    const summary = {
+      studentName: student.fullName,
+      studentId: student.studentId,
+      classGrade: student.classGrade,
+      batchName: batch ? batch.name : "Unassigned",
+      totalTestsAttempted: studentTests.length,
+      overallAverage: studentAverage,
+      currentRank,
+      bestSubject,
+      weakestSubject,
+      improvementPercentage
+    };
+    
+    res.json({
+      summary,
+      growthTrend,
+      subjectPerformance,
+      batchComparison,
+      insights: { strengths, needsImprovement, achievements }
+    });
+  } catch (error) {
+    console.error("GET /api/analytics/:studentId error:", error);
+    res.status(500).json({ error: "Failed to generate analytics" });
+  }
+});
+
 app.post("/api/message-templates/preview", authMiddleware, async (req, res) => {
   try {
     const { content, data } = req.body;
