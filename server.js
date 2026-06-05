@@ -105,6 +105,9 @@ const feeRecordSchema = new mongoose.Schema(
     mode: String,
     remarks: String,
     status: String,
+    transactionType: { type: String, default: "MONTHLY_FEE" },
+    createdBy: String,
+    lastUpdatedBy: String,
   },
   { strict: false, timestamps: true },
 );
