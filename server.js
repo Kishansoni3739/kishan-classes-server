@@ -166,6 +166,25 @@ const userSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+const messageTemplateSchema = new mongoose.Schema(
+  {
+    templateKey: { type: String, required: true },
+    templateName: { type: String, required: true },
+    category: { type: String, enum: ["admission", "fee", "exam", "attendance", "general", "announcement"], required: true },
+    channel: { type: String, enum: ["whatsapp", "sms", "email"], default: "whatsapp" },
+    content: { type: String, required: true },
+    variables: [String],
+    isActive: { type: Boolean, default: true },
+    isDefault: { type: Boolean, default: true },
+    defaultContent: String,
+    lastUpdatedBy: String,
+    lastUpdatedAt: Date,
+  },
+  { strict: false, timestamps: true },
+);
+messageTemplateSchema.index({ templateKey: 1, channel: 1 }, { unique: true });
+messageTemplateSchema.index({ category: 1 });
+
 const Settings = mongoose.model("Setting", settingsSchema);
 const Student = mongoose.model("Student", studentSchema);
 const Batch = mongoose.model("Batch", batchSchema);
@@ -174,6 +193,7 @@ const Test = mongoose.model("Test", testSchema);
 const ScheduledTest = mongoose.model("ScheduledTest", scheduledTestSchema);
 const NotificationLog = mongoose.model("NotificationLog", notificationLogSchema);
 const User = mongoose.model("User", userSchema);
+const MessageTemplate = mongoose.model("MessageTemplate", messageTemplateSchema);
 
 // ─────────────────────────────────────────────────────────
 // Helpers
@@ -182,6 +202,238 @@ const User = mongoose.model("User", userSchema);
 const defaultSubjects = ["Maths", "Science", "English", "Physics", "Chemistry", "Biology", "History", "Geography"];
 const uid = () => crypto.randomUUID();
 const monthKeyFromDate = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+
+// ─────────────────────────────────────────────────────────
+// Template Variable Replacement Engine
+// ─────────────────────────────────────────────────────────
+
+function replaceTemplateVariables(content, data) {
+  if (!content) return "";
+  return content.replace(/\{\{(\w+)\}\}/g, (match, varName) => {
+    return data[varName] !== undefined && data[varName] !== null ? String(data[varName]) : match;
+  });
+}
+
+// ─────────────────────────────────────────────────────────
+// Default Message Templates
+// ─────────────────────────────────────────────────────────
+
+function getDefaultTemplates() {
+  return [
+    // ── Admission ──
+    {
+      templateKey: "new_student_admission",
+      templateName: "New Student Admission",
+      category: "admission",
+      channel: "whatsapp",
+      variables: ["studentName", "studentId", "class", "batch", "admissionDate", "coachingName", "contactNumber"],
+      content: `Dear Parent,\n\n🎓 *New Admission Confirmed!*\n\nWe are pleased to inform you that *{{studentName}}* has been successfully admitted to *{{coachingName}}*.\n\n📋 *Admission Details:*\n• Student ID: {{studentId}}\n• Class: {{class}}\n• Batch: {{batch}}\n• Admission Date: {{admissionDate}}\n\nFor any queries, please contact us at {{contactNumber}}.\n\nWelcome aboard! 🌟\n\n— {{coachingName}}`,
+    },
+    {
+      templateKey: "welcome_message",
+      templateName: "Welcome Message",
+      category: "admission",
+      channel: "whatsapp",
+      variables: ["studentName", "parentName", "studentId", "class", "subjects", "coachingName", "contactNumber"],
+      content: `Dear {{parentName}},\n\nWelcome! 🎉 *{{studentName}}* has been successfully enrolled at *{{coachingName}}*.\n\n📋 *Details:*\n• Student ID: {{studentId}}\n• Class: {{class}}\n• Subjects: {{subjects}}\n\nWe look forward to a great learning journey together! 📚\n\nFor any assistance, contact us at {{contactNumber}}.\n\n— {{coachingName}}`,
+    },
+    {
+      templateKey: "parent_welcome_message",
+      templateName: "Parent Welcome Message",
+      category: "admission",
+      channel: "whatsapp",
+      variables: ["parentName", "studentName", "studentId", "class", "coachingName", "contactNumber"],
+      content: `Dear {{parentName}},\n\nWelcome to *{{coachingName}}*! 🙏\n\nYour child *{{studentName}}* (ID: {{studentId}}, Class: {{class}}) is now part of our learning community.\n\nYou will receive updates about:\n• Fee reminders & receipts\n• Test scores & progress reports\n• Important announcements\n\nContact us anytime at {{contactNumber}}.\n\nThank you for choosing us! 🌟\n\n— {{coachingName}}`,
+    },
+
+    // ── Fee ──
+    {
+      templateKey: "fee_receipt",
+      templateName: "Fee Receipt",
+      category: "fee",
+      channel: "whatsapp",
+      variables: ["studentName", "parentName", "paymentAmount", "month", "mode", "totalOutstanding", "coachingName"],
+      content: `Dear {{parentName}},\n\n✅ *Payment Received!*\n\n• Student: {{studentName}}\n• Amount: ₹{{paymentAmount}}\n• Month: {{month}}\n• Mode: {{mode}}\n• Outstanding Balance: ₹{{totalOutstanding}}\n\nThank you for the payment! 🙏\n\n— {{coachingName}}`,
+    },
+    {
+      templateKey: "fee_due_reminder",
+      templateName: "Fee Due Reminder",
+      category: "fee",
+      channel: "whatsapp",
+      variables: ["studentName", "parentName", "dueAmount", "totalOutstanding", "dueDate", "month", "coachingName", "contactNumber"],
+      content: `Dear {{parentName}},\n\nThis is a reminder that *{{studentName}}*'s tuition fee of ₹{{dueAmount}} for {{month}} is due on {{dueDate}}.\n\nTotal Outstanding: ₹{{totalOutstanding}}\n\nPlease contact the coaching office if payment has already been made.\n\n{{coachingName}}\n📞 {{contactNumber}}`,
+    },
+    {
+      templateKey: "fee_overdue_reminder",
+      templateName: "Fee Overdue Reminder",
+      category: "fee",
+      channel: "whatsapp",
+      variables: ["studentName", "parentName", "dueAmount", "totalOutstanding", "coachingName", "contactNumber"],
+      content: `Dear {{parentName}},\n\n⚠️ *Fee Overdue Notice*\n\n*{{studentName}}*'s tuition fee of ₹{{dueAmount}} is overdue.\n\nTotal Outstanding: ₹{{totalOutstanding}}\n\nPlease clear the dues at the earliest to avoid any inconvenience.\n\nContact: {{contactNumber}}\n\n— {{coachingName}}`,
+    },
+    {
+      templateKey: "monthly_fee_reminder",
+      templateName: "Monthly Fee Reminder",
+      category: "fee",
+      channel: "whatsapp",
+      variables: ["studentName", "parentName", "dueAmount", "month", "dueDate", "coachingName", "contactNumber"],
+      content: `Dear {{parentName}},\n\n📅 *Monthly Fee Reminder*\n\n• Student: {{studentName}}\n• Amount Due: ₹{{dueAmount}}\n• Month: {{month}}\n• Due Date: {{dueDate}}\n\nKindly make the payment on or before the due date.\n\n— {{coachingName}}\n📞 {{contactNumber}}`,
+    },
+    {
+      templateKey: "payment_confirmation",
+      templateName: "Payment Confirmation",
+      category: "fee",
+      channel: "whatsapp",
+      variables: ["studentName", "parentName", "paymentAmount", "month", "mode", "coachingName"],
+      content: `Dear {{parentName}},\n\n💰 *Fee Payment Update* for *{{studentName}}*:\n\n• Month: {{month}}\n• Amount Paid: ₹{{paymentAmount}}\n• Mode: {{mode}}\n\nThank you for the payment! ✅\n\n— {{coachingName}}`,
+    },
+
+    // ── Exam ──
+    {
+      templateKey: "test_created",
+      templateName: "Test Created",
+      category: "exam",
+      channel: "whatsapp",
+      variables: ["studentName", "parentName", "testName", "subject", "testDate", "maxMarks", "coachingName"],
+      content: `Dear {{parentName}},\n\n📅 *Upcoming Test Scheduled* for *{{studentName}}*:\n\n• Subject: {{subject}}\n• Test: {{testName}}\n• Date: {{testDate}}\n• Max Marks: {{maxMarks}}\n\nPlease ensure your child is prepared! 📚\n\n— {{coachingName}}`,
+    },
+    {
+      templateKey: "marks_published",
+      templateName: "Marks Published",
+      category: "exam",
+      channel: "whatsapp",
+      variables: ["studentName", "parentName", "testName", "subject", "marks", "maxMarks", "percentage", "grade", "coachingName"],
+      content: `Dear {{parentName}},\n\n📝 *Test Score Update* for *{{studentName}}*:\n\n• Subject: {{subject}}\n• Test: {{testName}}\n• Marks: *{{marks}}/{{maxMarks}}* ({{percentage}}%)\n• Grade: *{{grade}}*\n\nKeep encouraging your child! 🌟\n\n— {{coachingName}}`,
+    },
+    {
+      templateKey: "progress_report_available",
+      templateName: "Progress Report Available",
+      category: "exam",
+      channel: "whatsapp",
+      variables: ["studentName", "parentName", "reportLink", "coachingName"],
+      content: `Dear {{parentName}},\n\n📊 *Progress Report Available*\n\n*{{studentName}}*'s progress report is now ready.\n\nPlease contact the coaching office or check the student portal to view the detailed report.\n\nKeep supporting your child's learning journey! 📚\n\n— {{coachingName}}`,
+    },
+    {
+      templateKey: "result_announcement",
+      templateName: "Result Announcement",
+      category: "exam",
+      channel: "whatsapp",
+      variables: ["studentName", "parentName", "testName", "marks", "maxMarks", "percentage", "rank", "coachingName"],
+      content: `Dear {{parentName}},\n\n🏆 *Result Announcement*\n\n*{{studentName}}* has secured the following in *{{testName}}*:\n\n• Marks: {{marks}}/{{maxMarks}}\n• Percentage: {{percentage}}%\n• Rank: {{rank}}\n\nCongratulations! Keep up the great work! 🌟\n\n— {{coachingName}}`,
+    },
+
+    // ── Attendance (Future) ──
+    {
+      templateKey: "student_absent",
+      templateName: "Student Absent",
+      category: "attendance",
+      channel: "whatsapp",
+      variables: ["studentName", "parentName", "date", "class", "batch", "coachingName", "contactNumber"],
+      content: `Dear {{parentName}},\n\n⚠️ *Absence Notice*\n\n*{{studentName}}* (Class: {{class}}, Batch: {{batch}}) was absent on {{date}}.\n\nIf your child was unwell, please inform us. Regular attendance is important for academic progress.\n\nContact: {{contactNumber}}\n\n— {{coachingName}}`,
+    },
+    {
+      templateKey: "low_attendance_warning",
+      templateName: "Low Attendance Warning",
+      category: "attendance",
+      channel: "whatsapp",
+      variables: ["studentName", "parentName", "percentage", "class", "coachingName", "contactNumber"],
+      content: `Dear {{parentName}},\n\n🔴 *Low Attendance Warning*\n\n*{{studentName}}*'s attendance has dropped to *{{percentage}}%* which is below the minimum requirement.\n\nRegular attendance is crucial for academic success. Please ensure your child attends classes regularly.\n\nContact: {{contactNumber}}\n\n— {{coachingName}}`,
+    },
+
+    // ── General ──
+    {
+      templateKey: "password_reset",
+      templateName: "Password Reset",
+      category: "general",
+      channel: "whatsapp",
+      variables: ["studentName", "studentId", "coachingName", "contactNumber"],
+      content: `Dear Student,\n\n🔐 *Password Reset*\n\nYour password for *{{studentName}}* (ID: {{studentId}}) has been reset.\n\nPlease login with your new credentials and change your password immediately.\n\nIf you did not request this, contact us at {{contactNumber}}.\n\n— {{coachingName}}`,
+    },
+    {
+      templateKey: "account_created",
+      templateName: "Account Created",
+      category: "general",
+      channel: "whatsapp",
+      variables: ["studentName", "studentId", "coachingName", "contactNumber"],
+      content: `Dear Student,\n\n✅ *Account Created Successfully!*\n\nYour student account at *{{coachingName}}* is ready.\n\n• Name: {{studentName}}\n• Student ID: {{studentId}}\n• Login: Use your Student ID and Date of Birth (DDMMYYYY) as password\n\nFor any issues, contact {{contactNumber}}.\n\n— {{coachingName}}`,
+    },
+    {
+      templateKey: "parent_account_created",
+      templateName: "Parent Account Created",
+      category: "general",
+      channel: "whatsapp",
+      variables: ["parentName", "studentName", "studentId", "coachingName", "contactNumber"],
+      content: `Dear {{parentName}},\n\n✅ *Parent Access Enabled!*\n\nYou can now access *{{studentName}}*'s portal at *{{coachingName}}*.\n\n• Student ID: {{studentId}}\n• Login: Use Student ID and Date of Birth (DDMMYYYY)\n\nYou can view fee status, test scores, and progress reports.\n\nContact: {{contactNumber}}\n\n— {{coachingName}}`,
+    },
+    {
+      templateKey: "student_login_credentials",
+      templateName: "Student Login Credentials",
+      category: "general",
+      channel: "whatsapp",
+      variables: ["studentName", "studentId", "coachingName", "contactNumber"],
+      content: `Dear Student,\n\n🔑 *Your Login Credentials*\n\n• Username: {{studentId}}\n• Password: Your Date of Birth (DDMMYYYY)\n\nPlease keep your credentials safe and do not share them.\n\nFor help, contact {{contactNumber}}.\n\n— {{coachingName}}`,
+    },
+    {
+      templateKey: "parent_login_credentials",
+      templateName: "Parent Login Credentials",
+      category: "general",
+      channel: "whatsapp",
+      variables: ["parentName", "studentName", "studentId", "coachingName", "contactNumber"],
+      content: `Dear {{parentName}},\n\n🔑 *Login Credentials for {{studentName}}*\n\n• Username: {{studentId}}\n• Password: Date of Birth (DDMMYYYY)\n\nUse these to access the student portal and track {{studentName}}'s academic progress.\n\nContact: {{contactNumber}}\n\n— {{coachingName}}`,
+    },
+    {
+      templateKey: "profile_updated",
+      templateName: "Profile Updated",
+      category: "general",
+      channel: "whatsapp",
+      variables: ["studentName", "parentName", "coachingName", "contactNumber"],
+      content: `Dear {{parentName}},\n\nThis is to inform you that *{{studentName}}*'s profile has been updated at *{{coachingName}}*.\n\nIf you have any questions, please contact us at {{contactNumber}}.\n\n— {{coachingName}}`,
+    },
+
+    // ── Announcement ──
+    {
+      templateKey: "batch_announcement",
+      templateName: "Batch Announcement",
+      category: "announcement",
+      channel: "whatsapp",
+      variables: ["parentName", "studentName", "batch", "coachingName"],
+      content: `Dear {{parentName}},\n\n📢 *Batch Announcement*\n\nThis is an important update regarding *{{batch}}* batch at *{{coachingName}}*.\n\nPlease note the changes and contact us for any queries.\n\n— {{coachingName}}`,
+    },
+    {
+      templateKey: "holiday_notice",
+      templateName: "Holiday Notice",
+      category: "announcement",
+      channel: "whatsapp",
+      variables: ["parentName", "studentName", "coachingName"],
+      content: `Dear {{parentName}},\n\n🏖️ *Holiday Notice*\n\nPlease be informed that *{{coachingName}}* will remain closed on the mentioned dates.\n\nRegular classes will resume as per schedule after the holiday period.\n\nThank you! 🙏\n\n— {{coachingName}}`,
+    },
+    {
+      templateKey: "event_notification",
+      templateName: "Event Notification",
+      category: "announcement",
+      channel: "whatsapp",
+      variables: ["parentName", "studentName", "coachingName", "contactNumber"],
+      content: `Dear {{parentName}},\n\n🎉 *Event Notification*\n\n*{{coachingName}}* is organizing a special event. We would love to have *{{studentName}}* participate!\n\nFor details, contact us at {{contactNumber}}.\n\n— {{coachingName}}`,
+    },
+  ];
+}
+
+async function seedDefaultTemplates() {
+  const count = await MessageTemplate.countDocuments();
+  if (count > 0) return;
+
+  const defaults = getDefaultTemplates();
+  const docs = defaults.map((t) => ({
+    ...t,
+    isActive: true,
+    isDefault: true,
+    defaultContent: t.content,
+    lastUpdatedAt: new Date(),
+    lastUpdatedBy: "system",
+  }));
+  await MessageTemplate.insertMany(docs, { ordered: false });
+  console.log(`  → Seeded ${docs.length} default message templates`);
+}
 
 function createCycleBoundary(year, monthIndex, dayOfMonth) {
   const lastDay = new Date(year, monthIndex + 1, 0).getDate();
@@ -706,6 +958,73 @@ app.delete("/api/notification-logs/:id", authMiddleware, adminOnly, async (req, 
 });
 
 // ─────────────────────────────────────────────────────────
+// Message Templates Routes
+// ─────────────────────────────────────────────────────────
+
+app.get("/api/message-templates", authMiddleware, async (req, res) => {
+  try {
+    const templates = await MessageTemplate.find({}).sort({ category: 1, templateName: 1 });
+    res.json(templates);
+  } catch (error) {
+    console.error("GET /api/message-templates error:", error);
+    res.status(500).json({ error: "Failed to fetch message templates" });
+  }
+});
+
+app.get("/api/message-templates/:id", authMiddleware, async (req, res) => {
+  try {
+    const template = await MessageTemplate.findById(req.params.id);
+    if (!template) return res.status(404).json({ error: "Template not found" });
+    res.json(template);
+  } catch (error) {
+    console.error("GET /api/message-templates/:id error:", error);
+    res.status(500).json({ error: "Failed to fetch template" });
+  }
+});
+
+app.put("/api/message-templates/:id", authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const { content, isActive } = req.body;
+    const template = await MessageTemplate.findByIdAndUpdate(
+      req.params.id,
+      { content, isActive, lastUpdatedBy: req.user.username, lastUpdatedAt: new Date() },
+      { new: true }
+    );
+    if (!template) return res.status(404).json({ error: "Template not found" });
+    res.json(template);
+  } catch (error) {
+    console.error("PUT /api/message-templates/:id error:", error);
+    res.status(500).json({ error: "Failed to update template" });
+  }
+});
+
+app.post("/api/message-templates/:id/reset", authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const template = await MessageTemplate.findById(req.params.id);
+    if (!template) return res.status(404).json({ error: "Template not found" });
+    template.content = template.defaultContent;
+    template.lastUpdatedBy = req.user.username;
+    template.lastUpdatedAt = new Date();
+    await template.save();
+    res.json(template);
+  } catch (error) {
+    console.error("POST /api/message-templates/:id/reset error:", error);
+    res.status(500).json({ error: "Failed to reset template" });
+  }
+});
+
+app.post("/api/message-templates/preview", authMiddleware, async (req, res) => {
+  try {
+    const { content, data } = req.body;
+    const preview = replaceTemplateVariables(content, data);
+    res.json({ preview });
+  } catch (error) {
+    console.error("POST /api/message-templates/preview error:", error);
+    res.status(500).json({ error: "Failed to preview template" });
+  }
+});
+
+// ─────────────────────────────────────────────────────────
 // Start
 // ─────────────────────────────────────────────────────────
 
@@ -778,6 +1097,9 @@ async function start() {
         console.log(`  ✓ Recreated ${studentUserOps.length} student users with DOB passwords`);
       }
     }
+
+    // Seed default message templates
+    await seedDefaultTemplates();
 
     app.listen(PORT, () => {
       console.log(`\n✓ Server running at http://localhost:${PORT}`);
