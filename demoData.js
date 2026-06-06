@@ -1,4 +1,4 @@
-import { uid, monthKeyFromDate, createCycleBoundary, buildFeeRecord, getGrade, getPerformanceTag } from "../frontend/src/utils/shared.js";
+import { uid, monthKeyFromDate, createCycleBoundary, buildFeeRecord, getGrade, getPerformanceTag } from "./utils.js";
 
 const defaultSubjects = ["Maths", "Science", "English", "Physics", "Chemistry", "Biology", "History", "Geography"];
 

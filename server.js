@@ -202,7 +202,7 @@ const MessageTemplate = mongoose.model("MessageTemplate", messageTemplateSchema)
 // Helpers
 // ─────────────────────────────────────────────────────────
 
-import { uid, monthKeyFromDate } from "../frontend/src/utils/shared.js";
+import { uid, monthKeyFromDate } from "./utils.js";
 import { emptyState, demoState } from "./demoData.js";
 
 
