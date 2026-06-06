@@ -64,6 +64,7 @@ export function demoState() {
     admissionDate: s[16], classGrade: s[9], subjects: s[10], batchId: batches[s[11]].id,
     studentId: `CC-${currentYear}-${String(i + 1).padStart(3, "0")}`,
     totalCourseFee: s[12], monthlyFeeAmount: s[13], discount: s[14], feeDueDay: s[15],
+    status: "Active"
   }));
 
   const feeRecords = [];

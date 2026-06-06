@@ -76,6 +76,10 @@ const studentSchema = new mongoose.Schema(
     monthlyFeeAmount: Number,
     discount: Number,
     feeDueDay: Number,
+    status: { type: String, enum: ["Active", "Inactive", "Dropped", "Completed", "Transferred", "Archived"], default: "Active" },
+    withdrawalDate: String,
+    withdrawalReason: String,
+    withdrawalNotes: String,
   },
   { strict: false, timestamps: true },
 );
