@@ -133,7 +133,7 @@ Phone: ${student.contactNumber}
     // Import dynamically since it's a shared ESM utility (or we can just import at top)
     const { getVisibleFeeTenures } = await import("../shared/feeVisibility.js");
 
-    const filteredFees = getVisibleFeeTenures(allFees);
+    const filteredFees = getVisibleFeeTenures(allFees, student);
     
     const recentFees = [...filteredFees].sort((a, b) => new Date(b.dueDate) - new Date(a.dueDate)).slice(0, 3);
     
@@ -152,20 +152,9 @@ Phone: ${student.contactNumber}
     const paymentsReceived = filteredFees.reduce((sum, r) => sum + (Number(r.amountPaid) || 0), 0);
     const totalRemaining = Math.max(0, previousBalance + generatedMonthlyDues - paymentsReceived);
 
-    function getFeeTenureLabel(record, stu) {
-      if (record.transactionType === "OPENING_BALANCE") return "Previous Outstanding Balance";
-      const dueDate = record.dueDate ? new Date(record.dueDate) : new Date(`${record.monthKey}-01T00:00:00`);
-      const dueDay = Number(stu.feeDueDay || dueDate.getDate() || 1);
-      const startDate = new Date(dueDate.getFullYear(), dueDate.getMonth() - 1, dueDay);
-      const endDate = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDay);
-      const formatter = new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "short" });
-      return `${formatter.format(startDate).toUpperCase()} - ${formatter.format(endDate).toUpperCase()}`;
-    }
-
     let feeText = `*💰 Recent Fee Status*\n\n`;
     recentFees.forEach(f => {
-      const tenure = getFeeTenureLabel(f, student);
-      feeText += `*${tenure}*\nDue: ₹${f.amountDue}\nPaid: ₹${f.amountPaid}\nStatus: *${f.status}*\n---\n`;
+      feeText += `*${f.tenureLabel}*\nDue: ₹${f.amountDue}\nPaid: ₹${f.amountPaid}\nStatus: *${f.computedStatus}*\n---\n`;
     });
 
     feeText += `\n*Total Remaining Fees:* ₹${totalRemaining}`;
