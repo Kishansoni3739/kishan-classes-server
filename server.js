@@ -8,6 +8,8 @@ import mongoose from "mongoose";
 import cors from "cors";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import { initTelegramBot } from "./telegramService.js";
+let telegramBot = null;
 
 // Force Google DNS to fix broken SRV lookups on some networks
 dns.setServers(["8.8.8.8", "8.8.4.4"]);
@@ -192,6 +194,16 @@ const messageTemplateSchema = new mongoose.Schema(
 messageTemplateSchema.index({ templateKey: 1, channel: 1 }, { unique: true });
 messageTemplateSchema.index({ category: 1 });
 
+const telegramLinkTokenSchema = new mongoose.Schema(
+  {
+    token: { type: String, required: true, unique: true },
+    studentId: { type: String, required: true },
+    type: { type: String, enum: ["student", "parent"], required: true },
+    expiresAt: { type: Date, required: true },
+  },
+  { timestamps: true }
+);
+
 const Settings = mongoose.model("Setting", settingsSchema);
 const Student = mongoose.model("Student", studentSchema);
 const Batch = mongoose.model("Batch", batchSchema);
@@ -201,6 +213,7 @@ const ScheduledTest = mongoose.model("ScheduledTest", scheduledTestSchema);
 const NotificationLog = mongoose.model("NotificationLog", notificationLogSchema);
 const User = mongoose.model("User", userSchema);
 const MessageTemplate = mongoose.model("MessageTemplate", messageTemplateSchema);
+const TelegramLinkToken = mongoose.model("TelegramLinkToken", telegramLinkTokenSchema);
 
 // ─────────────────────────────────────────────────────────
 // Helpers
@@ -486,6 +499,14 @@ async function readState() {
 async function writeState(state) {
   const { settings = {}, students = [], batches = [], feeRecords = [], tests = [], scheduledTests = [], notificationLogs = [] } = state;
 
+  // Diff Engine for Telegram Notifications
+  let oldFeeRecords = [];
+  let oldTests = [];
+  try {
+    oldFeeRecords = await FeeRecord.find({}).lean();
+    oldTests = await Test.find({}).lean();
+  } catch (e) {}
+
   // Run all collection writes in parallel
   const ops = [
     Settings.findOneAndUpdate(
@@ -524,6 +545,38 @@ async function writeState(state) {
   }
 
   await Promise.all(ops);
+
+  // Trigger Telegram Notifications
+  if (telegramBot) {
+    try {
+      // 1. Fee Paid
+      for (const newFee of feeRecords) {
+        if (newFee.status === "Paid") {
+          const oldFee = oldFeeRecords.find(f => f.id === newFee.id);
+          if (!oldFee || oldFee.status !== "Paid") {
+            const student = await Student.findOne({ id: newFee.studentId }).lean();
+            if (student && student.telegramParentChatId) {
+              telegramBot.sendMessage(student.telegramParentChatId, `✅ *Fee Payment Received*\n\nStudent: ${student.fullName}\nAmount: ₹${newFee.amountPaid}\nMonth: ${newFee.monthKey}\n\nThank you!`);
+            }
+          }
+        }
+      }
+      // 2. New Test Results
+      for (const newTest of tests) {
+        const oldTest = oldTests.find(t => t.id === newTest.id);
+        if (!oldTest) {
+          const student = await Student.findOne({ id: newTest.studentId }).lean();
+          if (student && (student.telegramStudentChatId || student.telegramParentChatId)) {
+            const msg = `📊 *New Test Result*\n\nStudent: ${student.fullName}\nTest: ${newTest.testName}\nSubject: ${newTest.subject}\nMarks: ${newTest.marksObtained}/${newTest.maxMarks}\nGrade: ${newTest.grade}`;
+            if (student.telegramStudentChatId) telegramBot.sendMessage(student.telegramStudentChatId, msg);
+            if (student.telegramParentChatId && student.telegramParentChatId !== student.telegramStudentChatId) telegramBot.sendMessage(student.telegramParentChatId, msg);
+          }
+        }
+      }
+    } catch (e) {
+      console.error("Error sending telegram notifications:", e);
+    }
+  }
 
   // Sync student users
   try {
@@ -865,6 +918,74 @@ app.post("/api/message-templates/:id/reset", authMiddleware, adminOnly, async (r
   }
 });
 
+// ─────────────────────────────────────────────────────────
+// Telegram Routes
+// ─────────────────────────────────────────────────────────
+
+app.get("/api/telegram/link-token", authMiddleware, async (req, res) => {
+  try {
+    const { type } = req.query; // 'student' or 'parent'
+    if (type !== "student" && type !== "parent") return res.status(400).json({ error: "Invalid type" });
+    
+    // We only allow students to link from a student login
+    if (req.user.role !== "student") return res.status(403).json({ error: "Only students can generate link tokens" });
+
+    // Generate token
+    const token = Math.random().toString(36).substring(2, 10).toUpperCase();
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 mins
+    
+    await TelegramLinkToken.create({
+      token,
+      studentId: req.user.studentId,
+      type,
+      expiresAt
+    });
+
+    const botUsername = process.env.TELEGRAM_BOT_USERNAME || "kishan_classes_bot";
+    const linkUrl = `https://t.me/${botUsername}?start=${token}`;
+    
+    res.json({ linkUrl });
+  } catch (error) {
+    console.error("Link token error:", error);
+    res.status(500).json({ error: "Failed to generate link token" });
+  }
+});
+
+app.post("/api/telegram/broadcast", authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const { audience, message, batchId, studentId } = req.body;
+    let chatIds = [];
+    
+    const students = await Student.find({}).lean();
+    
+    students.forEach(s => {
+      let include = false;
+      if (audience === "all_students" || audience === "all") include = true;
+      if (audience === "all_parents" || audience === "all") include = true;
+      if (audience === "batch" && s.batchId === batchId) include = true;
+      if (audience === "student" && s.id === studentId) include = true;
+      
+      if (include) {
+        if ((audience === "all_students" || audience === "batch" || audience === "student" || audience === "all") && s.telegramStudentChatId) chatIds.push(s.telegramStudentChatId);
+        if ((audience === "all_parents" || audience === "batch" || audience === "student" || audience === "all") && s.telegramParentChatId) chatIds.push(s.telegramParentChatId);
+      }
+    });
+    
+    // Remove duplicates
+    chatIds = [...new Set(chatIds)];
+    
+    if (!telegramBot) {
+      return res.status(400).json({ error: "Telegram bot is not initialized" });
+    }
+    
+    const result = await telegramBot.broadcastMessage(chatIds, message);
+    res.json({ ok: true, result });
+  } catch (error) {
+    console.error("Broadcast error:", error);
+    res.status(500).json({ error: "Failed to broadcast message" });
+  }
+});
+
 app.get("/api/analytics/:studentId", authMiddleware, async (req, res) => {
   try {
     const studentId = req.params.studentId;
@@ -1047,6 +1168,9 @@ async function start() {
     console.log("Connecting to MongoDB Atlas...");
     await mongoose.connect(MONGO_URI, { dbName: DB_NAME });
     console.log(`✓ MongoDB Atlas connected — database: ${DB_NAME}`);
+
+    // Init Telegram Bot
+    telegramBot = initTelegramBot({ Student, FeeRecord, Test, TelegramLinkToken });
 
     // Seed admin
     const adminCount = await User.countDocuments({ role: "admin" });
