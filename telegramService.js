@@ -131,9 +131,9 @@ Phone: ${student.contactNumber}
     const allFees = await FeeRecord.find({ studentId: student.id }).lean();
     
     // Import dynamically since it's a shared ESM utility (or we can just import at top)
-    const { getVisibleFeeTenures } = await import("../shared/feeVisibility.js");
+    const { getEligibleFeeTenures } = await import("../shared/feeVisibility.js");
 
-    const filteredFees = getVisibleFeeTenures(allFees, student);
+    const filteredFees = getEligibleFeeTenures(allFees, student);
     
     const recentFees = [...filteredFees].sort((a, b) => new Date(b.dueDate) - new Date(a.dueDate)).slice(0, 3);
     
