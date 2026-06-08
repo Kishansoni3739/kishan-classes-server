@@ -127,19 +127,43 @@ Phone: ${student.contactNumber}
       return bot.sendMessage(chatId, "❌ Your account is not linked.");
     }
 
-    // We fetch fee records manually because this is an isolated query.
-    // Ideally we would query FeeRecord model directly, but we only have it in models
     const FeeRecord = models.FeeRecord;
-    const fees = await FeeRecord.find({ studentId: student.id }).sort({ dueDate: -1 }).limit(3).lean();
+    const allFees = await FeeRecord.find({ studentId: student.id }).lean();
     
-    if (fees.length === 0) {
+    const recentFees = [...allFees].sort((a, b) => new Date(b.dueDate) - new Date(a.dueDate)).slice(0, 3);
+    
+    if (recentFees.length === 0) {
       return bot.sendMessage(chatId, "No fee records found.");
     }
 
+    function isOverdueFeeRecord(record, nowStr = new Date().toISOString()) {
+      if (record.status === "Paid") return false;
+      return record.dueDate < nowStr;
+    }
+
+    const pastRecords = allFees.filter(r => r.status === "Paid" || r.status === "Partial" || isOverdueFeeRecord(r));
+    const generatedMonthlyDues = pastRecords.filter(r => r.transactionType !== "OPENING_BALANCE").reduce((sum, r) => sum + (Number(r.amountDue) || 0), 0);
+    const previousBalance = allFees.filter(r => r.transactionType === "OPENING_BALANCE").reduce((sum, r) => sum + (Number(r.amountDue) || 0), 0);
+    const paymentsReceived = allFees.reduce((sum, r) => sum + (Number(r.amountPaid) || 0), 0);
+    const totalRemaining = Math.max(0, previousBalance + generatedMonthlyDues - paymentsReceived);
+
+    function getFeeTenureLabel(record, stu) {
+      if (record.transactionType === "OPENING_BALANCE") return "Previous Outstanding Balance";
+      const dueDate = record.dueDate ? new Date(record.dueDate) : new Date(`${record.monthKey}-01T00:00:00`);
+      const dueDay = Number(stu.feeDueDay || dueDate.getDate() || 1);
+      const startDate = new Date(dueDate.getFullYear(), dueDate.getMonth() - 1, dueDay);
+      const endDate = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDay);
+      const formatter = new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "short" });
+      return `${formatter.format(startDate).toUpperCase()} - ${formatter.format(endDate).toUpperCase()}`;
+    }
+
     let feeText = `*💰 Recent Fee Status*\n\n`;
-    fees.forEach(f => {
-      feeText += `Month: ${f.monthKey || 'N/A'}\nDue: ₹${f.amountDue}\nPaid: ₹${f.amountPaid}\nStatus: *${f.status}*\n---\n`;
+    recentFees.forEach(f => {
+      const tenure = getFeeTenureLabel(f, student);
+      feeText += `*${tenure}*\nDue: ₹${f.amountDue}\nPaid: ₹${f.amountPaid}\nStatus: *${f.status}*\n---\n`;
     });
+
+    feeText += `\n*Total Remaining Fees:* ₹${totalRemaining}`;
 
     bot.sendMessage(chatId, feeText, { parse_mode: 'Markdown' });
   });
