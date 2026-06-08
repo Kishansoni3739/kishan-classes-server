@@ -91,6 +91,11 @@ export function initTelegramBot(models) {
         { telegramParentChatId: strId }
       ]
     }).lean();
+    
+    if (student && (student.status === "Dropped" || student.status === "Inactive")) {
+      return { _blocked: true };
+    }
+    
     return student;
   }
 
@@ -100,6 +105,9 @@ export function initTelegramBot(models) {
     const student = await getStudentByChatId(chatId);
     if (!student) {
       return bot.sendMessage(chatId, "❌ Your account is not linked. Please link from the portal.");
+    }
+    if (student._blocked) {
+      return bot.sendMessage(chatId, "❌ Your access has been disabled because your account is no longer active.");
     }
 
     let batchName = 'N/A';
@@ -125,6 +133,9 @@ Phone: ${student.contactNumber}
     const student = await getStudentByChatId(chatId);
     if (!student) {
       return bot.sendMessage(chatId, "❌ Your account is not linked.");
+    }
+    if (student._blocked) {
+      return bot.sendMessage(chatId, "❌ Your access has been disabled because your account is no longer active.");
     }
 
     const FeeRecord = models.FeeRecord;
@@ -164,6 +175,9 @@ Phone: ${student.contactNumber}
     if (!student) {
       return bot.sendMessage(chatId, "❌ Your account is not linked.");
     }
+    if (student._blocked) {
+      return bot.sendMessage(chatId, "❌ Your access has been disabled because your account is no longer active.");
+    }
 
     const Test = models.Test;
     const tests = await Test.find({ studentId: student.id }).sort({ testDate: -1 }).limit(3).lean();
@@ -188,6 +202,9 @@ Phone: ${student.contactNumber}
     const student = await getStudentByChatId(chatId);
     if (!student) {
       return bot.sendMessage(chatId, "❌ Your account is not linked.");
+    }
+    if (student._blocked) {
+      return bot.sendMessage(chatId, "❌ Your access has been disabled because your account is no longer active.");
     }
     bot.sendMessage(chatId, "Attendance feature is currently under development.");
   });
