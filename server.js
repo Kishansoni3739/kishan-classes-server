@@ -583,7 +583,10 @@ async function writeState(state) {
     const currentUsers = await User.find({ role: "student" });
     const currentUserMap = new Map(currentUsers.map((u) => [u.studentId, u]));
     const studentUserOps = [];
+    const seenStudentIds = new Set();
     for (const s of students) {
+      if (!s.studentId || seenStudentIds.has(s.studentId)) continue;
+      seenStudentIds.add(s.studentId);
       if (!currentUserMap.has(s.id)) {
         let defaultPassword = s.contactNumber || "password123";
         if (s.dateOfBirth) {
@@ -1207,7 +1210,10 @@ async function start() {
       await User.deleteMany({ role: "student" });
       const allStudents = await Student.find({}).lean();
       const studentUserOps = [];
+      const seenStudentIds = new Set();
       for (const s of allStudents) {
+        if (!s.studentId || seenStudentIds.has(s.studentId)) continue;
+        seenStudentIds.add(s.studentId);
         let defaultPassword = s.contactNumber || "password123";
         if (s.dateOfBirth) {
           const parts = s.dateOfBirth.split("-");
