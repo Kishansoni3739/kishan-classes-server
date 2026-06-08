@@ -101,13 +101,19 @@ export function initTelegramBot(models) {
     if (!student) {
       return bot.sendMessage(chatId, "❌ Your account is not linked. Please link from the portal.");
     }
+
+    let batchName = 'N/A';
+    if (student.batchId) {
+      const batch = await models.Batch.findOne({ id: student.batchId }).lean();
+      if (batch) batchName = batch.name;
+    }
     
     const profileText = `
 *👤 Student Profile*
 Name: ${student.fullName}
 Student ID: ${student.studentId}
 Class: ${student.classGrade}
-Batch: ${student.batchId || 'N/A'}
+Batch: ${batchName}
 Phone: ${student.contactNumber}
     `;
     bot.sendMessage(chatId, profileText, { parse_mode: 'Markdown' });
