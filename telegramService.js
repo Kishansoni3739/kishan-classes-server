@@ -130,44 +130,10 @@ Phone: ${student.contactNumber}
     const FeeRecord = models.FeeRecord;
     const allFees = await FeeRecord.find({ studentId: student.id }).lean();
     
-    function shouldShowUpcomingTenure(currentDate, currentTenureEndDate) {
-      const current = new Date(currentDate);
-      const end = new Date(currentTenureEndDate);
-      const diffDays = (end - current) / (1000 * 60 * 60 * 24);
-      return diffDays <= 10 && diffDays >= 0;
-    }
+    // Import dynamically since it's a shared ESM utility (or we can just import at top)
+    const { getVisibleFeeTenures } = await import("../shared/feeVisibility.js");
 
-    function getVisibleFeeRecords(allRecords) {
-      const sorted = [...allRecords].sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
-      const now = new Date();
-      
-      let currentRecordIndex = -1;
-      for (let i = 0; i < sorted.length; i++) {
-        if (new Date(sorted[i].dueDate) > now) {
-          currentRecordIndex = i;
-          break;
-        }
-      }
-
-      return sorted.filter((record, index) => {
-        if (record.transactionType === "OPENING_BALANCE" || record.status === "Paid") {
-          return true;
-        }
-        
-        if (new Date(record.dueDate) <= now) return true;
-        
-        if (currentRecordIndex === -1) return true;
-        if (index === currentRecordIndex) return true;
-        if (index === currentRecordIndex + 1) {
-          const currentTenure = sorted[currentRecordIndex];
-          return shouldShowUpcomingTenure(now, currentTenure.dueDate);
-        }
-        
-        return false;
-      });
-    }
-
-    const filteredFees = getVisibleFeeRecords(allFees);
+    const filteredFees = getVisibleFeeTenures(allFees);
     
     const recentFees = [...filteredFees].sort((a, b) => new Date(b.dueDate) - new Date(a.dueDate)).slice(0, 3);
     
@@ -226,6 +192,8 @@ Phone: ${student.contactNumber}
     tests.forEach(t => {
       testText += `Test: ${t.testName}\nSubject: ${t.subject}\nMarks: ${t.marksObtained}/${t.maxMarks}\nGrade: *${t.grade || 'N/A'}*\nDate: ${t.testDate}\n---\n`;
     });
+
+    testText += `\n_For past test scores visit mobile application or web portal_`;
 
     bot.sendMessage(chatId, testText, { parse_mode: 'Markdown' });
   });
