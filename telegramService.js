@@ -130,7 +130,21 @@ Phone: ${student.contactNumber}
     const FeeRecord = models.FeeRecord;
     const allFees = await FeeRecord.find({ studentId: student.id }).lean();
     
-    const recentFees = [...allFees].sort((a, b) => new Date(b.dueDate) - new Date(a.dueDate)).slice(0, 3);
+    function isUpcomingAndFarAway(record) {
+      if (record.status !== "Pending") return false;
+      if (record.transactionType === "OPENING_BALANCE") return false;
+      const dueDate = record.dueDate ? new Date(record.dueDate) : new Date(`${record.monthKey}-01T00:00:00`);
+      const now = new Date();
+      if (dueDate > now) {
+        const diffDays = (dueDate - now) / (1000 * 60 * 60 * 24);
+        return diffDays > 7;
+      }
+      return false;
+    }
+
+    const filteredFees = allFees.filter(f => !isUpcomingAndFarAway(f));
+    
+    const recentFees = [...filteredFees].sort((a, b) => new Date(b.dueDate) - new Date(a.dueDate)).slice(0, 3);
     
     if (recentFees.length === 0) {
       return bot.sendMessage(chatId, "No fee records found.");
@@ -141,10 +155,10 @@ Phone: ${student.contactNumber}
       return record.dueDate < nowStr;
     }
 
-    const pastRecords = allFees.filter(r => r.status === "Paid" || r.status === "Partial" || isOverdueFeeRecord(r));
+    const pastRecords = filteredFees.filter(r => r.status === "Paid" || r.status === "Partial" || isOverdueFeeRecord(r));
     const generatedMonthlyDues = pastRecords.filter(r => r.transactionType !== "OPENING_BALANCE").reduce((sum, r) => sum + (Number(r.amountDue) || 0), 0);
-    const previousBalance = allFees.filter(r => r.transactionType === "OPENING_BALANCE").reduce((sum, r) => sum + (Number(r.amountDue) || 0), 0);
-    const paymentsReceived = allFees.reduce((sum, r) => sum + (Number(r.amountPaid) || 0), 0);
+    const previousBalance = filteredFees.filter(r => r.transactionType === "OPENING_BALANCE").reduce((sum, r) => sum + (Number(r.amountDue) || 0), 0);
+    const paymentsReceived = filteredFees.reduce((sum, r) => sum + (Number(r.amountPaid) || 0), 0);
     const totalRemaining = Math.max(0, previousBalance + generatedMonthlyDues - paymentsReceived);
 
     function getFeeTenureLabel(record, stu) {

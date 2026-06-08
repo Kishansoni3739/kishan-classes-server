@@ -180,7 +180,7 @@ const messageTemplateSchema = new mongoose.Schema(
     templateKey: { type: String, required: true },
     templateName: { type: String, required: true },
     category: { type: String, enum: ["admission", "fee", "exam", "attendance", "general", "announcement"], required: true },
-    channel: { type: String, enum: ["whatsapp", "sms", "email"], default: "whatsapp" },
+    channel: { type: String, enum: ["whatsapp", "sms", "telegram", "email"], default: "whatsapp" },
     content: { type: String, required: true },
     variables: [String],
     isActive: { type: Boolean, default: true },
@@ -435,6 +435,23 @@ function getDefaultTemplates() {
       variables: ["parentName", "studentName", "coachingName", "contactNumber"],
       content: `Dear {{parentName}},\n\n🎉 *Event Notification*\n\n*{{coachingName}}* is organizing a special event. We would love to have *{{studentName}}* participate!\n\nFor details, contact us at {{contactNumber}}.\n\n— {{coachingName}}`,
     },
+    // ── Telegram ──
+    {
+      templateKey: "telegram_fee_receipt",
+      templateName: "Telegram Fee Receipt",
+      category: "fee",
+      channel: "telegram",
+      variables: ["studentName", "amountPaid", "monthKey"],
+      content: `✅ *Fee Payment Received*\n\nStudent: {{studentName}}\nAmount: ₹{{amountPaid}}\nMonth: {{monthKey}}\n\nThank you!`,
+    },
+    {
+      templateKey: "telegram_test_result",
+      templateName: "Telegram Test Result",
+      category: "exam",
+      channel: "telegram",
+      variables: ["studentName", "testName", "subject", "marksObtained", "maxMarks", "grade"],
+      content: `📊 *New Test Result*\n\nStudent: {{studentName}}\nTest: {{testName}}\nSubject: {{subject}}\nMarks: {{marksObtained}}/{{maxMarks}}\nGrade: {{grade}}`,
+    },
   ];
 }
 
@@ -549,6 +566,10 @@ async function writeState(state) {
   // Trigger Telegram Notifications
   if (telegramBot) {
     try {
+      // Fetch templates once
+      const feeTpl = await MessageTemplate.findOne({ templateKey: "telegram_fee_receipt", channel: "telegram", isActive: true }).lean();
+      const testTpl = await MessageTemplate.findOne({ templateKey: "telegram_test_result", channel: "telegram", isActive: true }).lean();
+
       // 1. Fee Paid
       for (const newFee of feeRecords) {
         if (newFee.status === "Paid") {
@@ -556,7 +577,11 @@ async function writeState(state) {
           if (!oldFee || oldFee.status !== "Paid") {
             const student = await Student.findOne({ id: newFee.studentId }).lean();
             if (student && student.telegramParentChatId) {
-              telegramBot.sendMessage(student.telegramParentChatId, `✅ *Fee Payment Received*\n\nStudent: ${student.fullName}\nAmount: ₹${newFee.amountPaid}\nMonth: ${newFee.monthKey}\n\nThank you!`);
+              let feeMsg = `✅ *Fee Payment Received*\n\nStudent: ${student.fullName}\nAmount: ₹${newFee.amountPaid}\nMonth: ${newFee.monthKey}\n\nThank you!`;
+              if (feeTpl && feeTpl.content) {
+                feeMsg = replaceTemplateVariables(feeTpl.content, { studentName: student.fullName, amountPaid: newFee.amountPaid, monthKey: newFee.monthKey });
+              }
+              telegramBot.sendMessage(student.telegramParentChatId, feeMsg);
             }
           }
         }
@@ -567,7 +592,10 @@ async function writeState(state) {
         if (!oldTest) {
           const student = await Student.findOne({ id: newTest.studentId }).lean();
           if (student && (student.telegramStudentChatId || student.telegramParentChatId)) {
-            const msg = `📊 *New Test Result*\n\nStudent: ${student.fullName}\nTest: ${newTest.testName}\nSubject: ${newTest.subject}\nMarks: ${newTest.marksObtained}/${newTest.maxMarks}\nGrade: ${newTest.grade}`;
+            let msg = `📊 *New Test Result*\n\nStudent: ${student.fullName}\nTest: ${newTest.testName}\nSubject: ${newTest.subject}\nMarks: ${newTest.marksObtained}/${newTest.maxMarks}\nGrade: ${newTest.grade}`;
+            if (testTpl && testTpl.content) {
+              msg = replaceTemplateVariables(testTpl.content, { studentName: student.fullName, testName: newTest.testName, subject: newTest.subject, marksObtained: newTest.marksObtained, maxMarks: newTest.maxMarks, grade: newTest.grade });
+            }
             if (student.telegramStudentChatId) telegramBot.sendMessage(student.telegramStudentChatId, msg);
             if (student.telegramParentChatId && student.telegramParentChatId !== student.telegramStudentChatId) telegramBot.sendMessage(student.telegramParentChatId, msg);
           }
@@ -1173,7 +1201,7 @@ async function start() {
     console.log(`✓ MongoDB Atlas connected — database: ${DB_NAME}`);
 
     // Init Telegram Bot
-    telegramBot = initTelegramBot({ Student, FeeRecord, Test, TelegramLinkToken });
+    telegramBot = initTelegramBot({ Student, FeeRecord, Test, TelegramLinkToken, Batch });
 
     // Seed admin
     const adminCount = await User.countDocuments({ role: "admin" });
