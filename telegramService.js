@@ -141,13 +141,8 @@ Phone: ${student.contactNumber}
       return bot.sendMessage(chatId, "No fee records found.");
     }
 
-    function isOverdueFeeRecord(record, nowStr = new Date().toISOString()) {
-      if (record.status === "Paid") return false;
-      return record.dueDate < nowStr;
-    }
 
-    const pastRecords = filteredFees.filter(r => r.status === "Paid" || r.status === "Partial" || isOverdueFeeRecord(r));
-    const generatedMonthlyDues = pastRecords.filter(r => r.transactionType !== "OPENING_BALANCE").reduce((sum, r) => sum + (Number(r.amountDue) || 0), 0);
+    const generatedMonthlyDues = filteredFees.filter(r => r.transactionType !== "OPENING_BALANCE").reduce((sum, r) => sum + (Number(r.amountDue) || 0), 0);
     const previousBalance = filteredFees.filter(r => r.transactionType === "OPENING_BALANCE").reduce((sum, r) => sum + (Number(r.amountDue) || 0), 0);
     const paymentsReceived = filteredFees.reduce((sum, r) => sum + (Number(r.amountPaid) || 0), 0);
     const totalRemaining = Math.max(0, previousBalance + generatedMonthlyDues - paymentsReceived);

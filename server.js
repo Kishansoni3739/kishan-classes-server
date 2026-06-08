@@ -8,6 +8,7 @@ import mongoose from "mongoose";
 import cors from "cors";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import compression from "compression";
 import { initTelegramBot } from "./telegramService.js";
 let telegramBot = null;
 
@@ -119,6 +120,8 @@ const feeRecordSchema = new mongoose.Schema(
 );
 feeRecordSchema.index({ studentId: 1 });
 feeRecordSchema.index({ status: 1 });
+feeRecordSchema.index({ batchId: 1 });
+feeRecordSchema.index({ monthKey: 1 });
 
 const testSchema = new mongoose.Schema(
   {
@@ -137,6 +140,7 @@ const testSchema = new mongoose.Schema(
   { strict: false, timestamps: true },
 );
 testSchema.index({ studentId: 1 });
+testSchema.index({ batchId: 1 });
 
 const scheduledTestSchema = new mongoose.Schema(
   {
@@ -151,6 +155,7 @@ const scheduledTestSchema = new mongoose.Schema(
   { strict: false, timestamps: true },
 );
 scheduledTestSchema.index({ studentId: 1 });
+scheduledTestSchema.index({ batchId: 1 });
 
 const notificationLogSchema = new mongoose.Schema(
   {
@@ -690,6 +695,7 @@ app.use(cors({
   },
   credentials: true,
 }));
+app.use(compression());
 app.use(express.json({ limit: "12mb" }));
 
 // ─────────────────────────────────────────────────────────
@@ -1009,8 +1015,9 @@ app.post("/api/telegram/broadcast", authMiddleware, adminOnly, async (req, res) 
       return res.status(400).json({ error: "Telegram bot is not initialized" });
     }
     
-    const result = await telegramBot.broadcastMessage(chatIds, message);
-    res.json({ ok: true, result });
+    // Run async so we don't block the API response
+    telegramBot.broadcastMessage(chatIds, message).catch(console.error);
+    res.json({ ok: true, status: 'Broadcast started in background', totalTargets: chatIds.length });
   } catch (error) {
     console.error("Broadcast error:", error);
     res.status(500).json({ error: "Failed to broadcast message" });
