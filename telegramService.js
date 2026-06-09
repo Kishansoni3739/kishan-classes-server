@@ -146,10 +146,13 @@ Phone: ${student.contactNumber}
 
     const filteredFees = getCompletedFeeTenures(allFees, student);
     
-    const recentFees = [...filteredFees].sort((a, b) => new Date(b.dueDate) - new Date(a.dueDate)).slice(0, 3);
+    const recentFees = [...filteredFees]
+      .filter(f => f.status !== "Paid")
+      .sort((a, b) => new Date(b.dueDate) - new Date(a.dueDate))
+      .slice(0, 5); // Show up to 5 pending records
     
     if (recentFees.length === 0) {
-      return bot.sendMessage(chatId, "No fee records found.");
+      return bot.sendMessage(chatId, "No pending fee records found.");
     }
 
 
