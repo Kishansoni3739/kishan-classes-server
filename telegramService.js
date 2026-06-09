@@ -141,8 +141,8 @@ Phone: ${student.contactNumber}
     const FeeRecord = models.FeeRecord;
     const allFees = await FeeRecord.find({ studentId: student.id }).lean();
     
-    // Import dynamically since it's a shared ESM utility (or we can just import at top)
-    const { getCompletedFeeTenures } = await import("../shared/feeVisibility.js");
+    // Import locally to avoid Render deployment issues with the parent directory
+    const { getCompletedFeeTenures } = await import("./feeVisibility.js");
 
     const filteredFees = getCompletedFeeTenures(allFees, student);
     
