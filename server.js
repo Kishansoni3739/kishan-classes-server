@@ -13,7 +13,7 @@ import { initTelegramBot } from "./telegramService.js";
 let telegramBot = null;
 
 // ─────────────────────────────────────────────────────────
-// Global Crash Handlers
+// Global Crash Handlers & Graceful Shutdown
 // ─────────────────────────────────────────────────────────
 process.on("uncaughtException", (error) => {
   console.error("\n[Backend:CRASH] 💥 UNCAUGHT EXCEPTION:", error);
@@ -21,6 +21,17 @@ process.on("uncaughtException", (error) => {
 process.on("unhandledRejection", (reason, promise) => {
   console.error("\n[Backend:CRASH] 💥 UNHANDLED PROMISE REJECTION at:", promise, "reason:", reason);
 });
+
+// Graceful shutdown on Render deployments
+async function shutdown(signal) {
+  console.log(`\n[Backend:Shutdown] 🛑 Received ${signal}. Gracefully shutting down...`);
+  if (telegramBot && telegramBot.stop) {
+    await telegramBot.stop();
+  }
+  process.exit(0);
+}
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
 
 // Force Google DNS to fix broken SRV lookups on some networks
 dns.setServers(["8.8.8.8", "8.8.4.4"]);
@@ -698,7 +709,7 @@ app.use(express.json({ limit: "12mb" }));
 app.use((req, res, next) => {
   const start = Date.now();
   console.log(`\n[Backend:API] 📩 Incoming Request: ${req.method} ${req.url}`);
-  if (req.method !== 'GET' && Object.keys(req.body).length > 0) {
+  if (req.method !== 'GET' && req.body && Object.keys(req.body).length > 0) {
     const bodyClone = { ...req.body };
     if (bodyClone.password) bodyClone.password = "***HIDDEN***";
     console.log(`[Backend:API] 📦 Payload Size: ${JSON.stringify(bodyClone).length} bytes`);
@@ -709,6 +720,17 @@ app.use((req, res, next) => {
     const statusIcon = res.statusCode >= 500 ? '💥' : res.statusCode >= 400 ? '⚠️' : '✅';
     console.log(`[Backend:API] ${statusIcon} Response Sent: ${req.method} ${req.url} - Status: ${res.statusCode} (${duration}ms)`);
   });
+  next();
+});
+
+// ─────────────────────────────────────────────────────────
+// Database Circuit Breaker Middleware
+// ─────────────────────────────────────────────────────────
+app.use((req, res, next) => {
+  if (mongoose.connection.readyState !== 1 && req.url.startsWith('/api/') && req.url !== '/api/health') {
+    console.warn(`[Backend:CircuitBreaker] 🛑 Rejecting request to ${req.url} because MongoDB is disconnected.`);
+    return res.status(503).json({ error: "Database is temporarily offline. Please try again later." });
+  }
   next();
 });
 

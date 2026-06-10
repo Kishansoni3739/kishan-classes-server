@@ -251,6 +251,18 @@ Phone: ${student.contactNumber}
       }
       
       return { sent, failed };
+    },
+    
+    stop: async () => {
+      if (bot) {
+        console.log("[Telegram] 🛑 Stopping Telegram bot polling...");
+        try {
+          await bot.stopPolling();
+          console.log("[Telegram] ✅ Telegram bot polling stopped.");
+        } catch (err) {
+          console.error("[Telegram] 💥 Error stopping polling:", err.message);
+        }
+      }
     }
   };
 }
