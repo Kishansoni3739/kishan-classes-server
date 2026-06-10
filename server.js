@@ -12,6 +12,16 @@ import compression from "compression";
 import { initTelegramBot } from "./telegramService.js";
 let telegramBot = null;
 
+// ─────────────────────────────────────────────────────────
+// Global Crash Handlers
+// ─────────────────────────────────────────────────────────
+process.on("uncaughtException", (error) => {
+  console.error("\n[Backend:CRASH] 💥 UNCAUGHT EXCEPTION:", error);
+});
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("\n[Backend:CRASH] 💥 UNHANDLED PROMISE REJECTION at:", promise, "reason:", reason);
+});
+
 // Force Google DNS to fix broken SRV lookups on some networks
 dns.setServers(["8.8.8.8", "8.8.4.4"]);
 
@@ -1202,92 +1212,97 @@ app.post("/api/message-templates/preview", authMiddleware, async (req, res) => {
 // Start
 // ─────────────────────────────────────────────────────────
 
-async function start() {
-  try {
-    if (!MONGO_URI) {
-      throw new Error("MONGO_URI is missing in .env file. Please provide a MongoDB Atlas connection string.");
-    }
-    console.log("[Backend:Startup] 🔌 Connecting to MongoDB...");
-    await mongoose.connect(MONGO_URI, { dbName: DB_NAME });
-    console.log("[Backend:Startup] ✅ Connected to MongoDB successfully.");
-
-    // Init Telegram Bot
-    telegramBot = initTelegramBot({ Student, FeeRecord, Test, TelegramLinkToken, Batch });
-
-    // Seed admin
-    const adminCount = await User.countDocuments({ role: "admin" });
-    if (adminCount === 0) {
-      const hash = await bcrypt.hash("admin123", 10);
-      await User.create({ username: "admin", passwordHash: hash, role: "admin" });
-      console.log("  → Default admin created (admin/admin123)");
-    }
-
-    const testUserCount = await User.countDocuments({ role: "testuser" });
-    if (testUserCount === 0) {
-      const hash = await bcrypt.hash("test1234", 10);
-      await User.create({ username: "testuser", passwordHash: hash, role: "testuser" });
-      console.log("  → Default testuser created (testuser/test1234)");
-    }
-
-    // Show collection counts
-    const counts = {
-      students: await Student.countDocuments(),
-      batches: await Batch.countDocuments(),
-      feeRecords: await FeeRecord.countDocuments(),
-      tests: await Test.countDocuments(),
-      notifications: await NotificationLog.countDocuments(),
-    };
-    console.log("  Collections:", counts);
-
-    if (counts.students === 0 && counts.batches === 0) {
-      console.log("  → Empty database. Loading demo data...");
-      await writeState(demoState());
-      console.log("  ✓ Demo data loaded!");
-    } else {
-      // Temporarily sync all student passwords to DOB for existing data
-      console.log("  → Syncing student passwords to DOB...");
-      await User.deleteMany({ role: "student" });
-      const allStudents = await Student.find({}).lean();
-      const studentUserOps = [];
-      const seenStudentIds = new Set();
-      for (const s of allStudents) {
-        if (!s.studentId || seenStudentIds.has(s.studentId)) continue;
-        seenStudentIds.add(s.studentId);
-        let defaultPassword = s.contactNumber || "password123";
-        if (s.dateOfBirth) {
-          const parts = s.dateOfBirth.split("-");
-          if (parts.length === 3) {
-            defaultPassword = parts[2] + parts[1] + parts[0]; // DDMMYYYY
-          }
-        }
-        const hash = await bcrypt.hash(defaultPassword, 10);
-        studentUserOps.push({
-          insertOne: {
-            document: {
-              username: s.studentId,
-              passwordHash: hash,
-              role: "student",
-              studentId: s.id,
-            },
-          },
-        });
-      }
-      if (studentUserOps.length > 0) {
-        await User.bulkWrite(studentUserOps);
-        console.log(`  ✓ Recreated ${studentUserOps.length} student users with DOB passwords`);
-      }
-    }
-
-    // Seed default message templates
-    await seedDefaultTemplates();
-
-    app.listen(PORT, () => {
-      console.log(`\n[Backend:Startup] 🚀 Server running perfectly at http://localhost:${PORT}`);
-    });
-  } catch (error) {
-    console.error("[Backend:Startup] 💥 FATAL STARTUP ERROR:", error);
-    process.exit(1);
+async function startDatabaseAndSeed() {
+  if (!MONGO_URI) {
+    throw new Error("MONGO_URI is missing in .env file. Please provide a MongoDB Atlas connection string.");
   }
+  console.log("[Backend:Startup] 🔌 Connecting to MongoDB...");
+  await mongoose.connect(MONGO_URI, { dbName: DB_NAME });
+  console.log("[Backend:Startup] ✅ Connected to MongoDB successfully.");
+
+  // Init Telegram Bot
+  telegramBot = initTelegramBot({ Student, FeeRecord, Test, TelegramLinkToken, Batch });
+
+  // Seed admin
+  const adminCount = await User.countDocuments({ role: "admin" });
+  if (adminCount === 0) {
+    const hash = await bcrypt.hash("admin123", 10);
+    await User.create({ username: "admin", passwordHash: hash, role: "admin" });
+    console.log("  → Default admin created (admin/admin123)");
+  }
+
+  const testUserCount = await User.countDocuments({ role: "testuser" });
+  if (testUserCount === 0) {
+    const hash = await bcrypt.hash("test1234", 10);
+    await User.create({ username: "testuser", passwordHash: hash, role: "testuser" });
+    console.log("  → Default testuser created (testuser/test1234)");
+  }
+
+  // Show collection counts
+  const counts = {
+    students: await Student.countDocuments(),
+    batches: await Batch.countDocuments(),
+    feeRecords: await FeeRecord.countDocuments(),
+    tests: await Test.countDocuments(),
+    notifications: await NotificationLog.countDocuments(),
+  };
+  console.log("  Collections:", counts);
+
+  if (counts.students === 0 && counts.batches === 0) {
+    console.log("  → Empty database. Loading demo data...");
+    await writeState(demoState());
+    console.log("  ✓ Demo data loaded!");
+  } else {
+    // Temporarily sync all student passwords to DOB for existing data
+    console.log("  → Syncing student passwords to DOB...");
+    await User.deleteMany({ role: "student" });
+    const allStudents = await Student.find({}).lean();
+    const studentUserOps = [];
+    const seenStudentIds = new Set();
+    for (const s of allStudents) {
+      if (!s.studentId || seenStudentIds.has(s.studentId)) continue;
+      seenStudentIds.add(s.studentId);
+      let defaultPassword = s.contactNumber || "password123";
+      if (s.dateOfBirth) {
+        const parts = s.dateOfBirth.split("-");
+        if (parts.length === 3) {
+          defaultPassword = parts[2] + parts[1] + parts[0]; // DDMMYYYY
+        }
+      }
+      const hash = await bcrypt.hash(defaultPassword, 10);
+      studentUserOps.push({
+        insertOne: {
+          document: {
+            username: s.studentId,
+            passwordHash: hash,
+            role: "student",
+            studentId: s.id,
+          },
+        },
+      });
+    }
+    if (studentUserOps.length > 0) {
+      await User.bulkWrite(studentUserOps);
+      console.log(`  ✓ Recreated ${studentUserOps.length} student users with DOB passwords`);
+    }
+  }
+
+  // Seed default message templates
+  await seedDefaultTemplates();
+}
+
+function start() {
+  // Always bind the port FIRST so the server never returns 502 Bad Gateway
+  app.listen(PORT, () => {
+    console.log(`\n[Backend:Startup] 🚀 Express Server listening on port ${PORT}...`);
+    
+    // Start DB connection in the background. If it fails, log it but DON'T kill the server.
+    startDatabaseAndSeed().catch((error) => {
+      console.error("\n[Backend:Startup] 💥 FATAL DATABASE ERROR:", error);
+      console.error("The Express server is still running, but API routes will fail with 500 errors.");
+      console.error("Please check your MongoDB Atlas Network Access (IP Whitelist) and MONGO_URI.");
+    });
+  });
 }
 
 start();
