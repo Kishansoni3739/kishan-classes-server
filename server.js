@@ -683,6 +683,26 @@ app.use(compression());
 app.use(express.json({ limit: "12mb" }));
 
 // ─────────────────────────────────────────────────────────
+// Telemetry Middleware
+// ─────────────────────────────────────────────────────────
+app.use((req, res, next) => {
+  const start = Date.now();
+  console.log(`\n[Backend:API] 📩 Incoming Request: ${req.method} ${req.url}`);
+  if (req.method !== 'GET' && Object.keys(req.body).length > 0) {
+    const bodyClone = { ...req.body };
+    if (bodyClone.password) bodyClone.password = "***HIDDEN***";
+    console.log(`[Backend:API] 📦 Payload Size: ${JSON.stringify(bodyClone).length} bytes`);
+  }
+  
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    const statusIcon = res.statusCode >= 500 ? '💥' : res.statusCode >= 400 ? '⚠️' : '✅';
+    console.log(`[Backend:API] ${statusIcon} Response Sent: ${req.method} ${req.url} - Status: ${res.statusCode} (${duration}ms)`);
+  });
+  next();
+});
+
+// ─────────────────────────────────────────────────────────
 // Middlewares
 // ─────────────────────────────────────────────────────────
 
@@ -1187,9 +1207,9 @@ async function start() {
     if (!MONGO_URI) {
       throw new Error("MONGO_URI is missing in .env file. Please provide a MongoDB Atlas connection string.");
     }
-    console.log("Connecting to MongoDB Atlas...");
+    console.log("[Backend:Startup] 🔌 Connecting to MongoDB...");
     await mongoose.connect(MONGO_URI, { dbName: DB_NAME });
-    console.log(`✓ MongoDB Atlas connected — database: ${DB_NAME}`);
+    console.log("[Backend:Startup] ✅ Connected to MongoDB successfully.");
 
     // Init Telegram Bot
     telegramBot = initTelegramBot({ Student, FeeRecord, Test, TelegramLinkToken, Batch });
@@ -1262,10 +1282,10 @@ async function start() {
     await seedDefaultTemplates();
 
     app.listen(PORT, () => {
-      console.log(`\n✓ Server running at http://localhost:${PORT}`);
+      console.log(`\n[Backend:Startup] 🚀 Server running perfectly at http://localhost:${PORT}`);
     });
   } catch (error) {
-    console.error("Failed to start:", error.message);
+    console.error("[Backend:Startup] 💥 FATAL STARTUP ERROR:", error);
     process.exit(1);
   }
 }
