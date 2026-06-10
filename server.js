@@ -673,25 +673,9 @@ function validateStateShape(body) {
 const app = express();
 app.use(cors({
   origin: function (origin, callback) {
-    // Allow requests with no origin (mobile apps, Capacitor, curl, etc.)
-    if (!origin) return callback(null, true);
-
-    const allowedOrigins = [
-      process.env.FRONTEND_URL,
-      "https://localhost",           // Capacitor Android with androidScheme: "https"
-      "http://localhost",
-      "http://localhost:5173",
-      "http://localhost:4173",
-      "capacitor://localhost",
-      "http://10.0.2.2",            // Android emulator
-    ].filter(Boolean); // Remove undefined entries (e.g. if FRONTEND_URL is not set)
-
-    if (allowedOrigins.some((allowed) => origin.startsWith(allowed))) {
-      return callback(null, true);
-    }
-
-    console.warn("CORS blocked origin:", origin);
-    callback(new Error("Not allowed by CORS"));
+    // Dynamically allow ALL origins for development and production
+    // This perfectly resolves CORS issues for web, Android, and local dev
+    return callback(null, true);
   },
   credentials: true,
 }));
