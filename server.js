@@ -744,13 +744,14 @@ function authMiddleware(req, res, next) {
     return res.status(401).json({ error: "Unauthorized" });
   }
   const token = authHeader.split(" ")[1];
-  try {
-    const payload = jwt.verify(token, JWT_SECRET);
-    req.user = payload;
+  jwt.verify(token, JWT_SECRET, (err, decoded) => {
+    if (err) {
+      console.error("[Auth] JWT verify failed:", err.message);
+      return res.status(401).json({ message: err.message });
+    }
+    req.user = decoded;
     next();
-  } catch (err) {
-    return res.status(401).json({ error: "Invalid token" });
-  }
+  });
 }
 
 function adminOnly(req, res, next) {
