@@ -2,7 +2,11 @@ import dns from "node:dns";
 import mongoose from "mongoose";
 
 // Force Google DNS since the local DNS may not resolve MongoDB Atlas hostnames
-dns.setServers(["8.8.8.8", "8.8.4.4"]);
+try {
+  dns.setServers(["8.8.8.8", "8.8.4.4"]);
+} catch (e) {
+  console.warn("[DB] Warning: Unable to override DNS servers, relying on system defaults:", e.message);
+}
 
 export const connectDB = async () => {
   const uri = process.env.MONGODB_URI;

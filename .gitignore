@@ -1,0 +1,22 @@
+# dependencies
+node_modules/
+
+# local env files
+.env
+.env.local
+
+# uploads
+uploads/
+
+# logs
+*.log
+logs/
+pids
+lib-cov
+coverage
+.nyc_output
+
+# editor files
+.DS_Store
+.vscode/
+.idea/
