@@ -47,11 +47,27 @@ export const listMonthlyFees = asyncHandler(async (req, res) => {
     };
   });
 
-  // Simple search filtering since search across populated fields is complex
-  let filteredItems = items;
+  // Deduplicate items by student + Year/Month
+  const uniqueItemsMap = new Map();
+  items.forEach(item => {
+    const pStart = new Date(item.periodStart);
+    const studentId = item.student?._id?.toString() || item.student?.studentId || item.student;
+    const key = `${studentId}-${pStart.getUTCFullYear()}-${pStart.getUTCMonth() + 1}`;
+
+    if (!uniqueItemsMap.has(key)) {
+      uniqueItemsMap.set(key, item);
+    } else {
+      const existing = uniqueItemsMap.get(key);
+      if ((item.paidAmount || 0) > (existing.paidAmount || 0)) {
+        uniqueItemsMap.set(key, item);
+      }
+    }
+  });
+
+  let filteredItems = Array.from(uniqueItemsMap.values());
   if (search) {
     const s = search.toLowerCase();
-    filteredItems = items.filter(item => 
+    filteredItems = filteredItems.filter(item => 
       item.student?.user?.name?.toLowerCase().includes(s) ||
       item.student?.studentId?.toLowerCase().includes(s)
     );

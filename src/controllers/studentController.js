@@ -152,29 +152,62 @@ export const getStudentProfile = asyncHandler(async (req, res) => {
     Result.find({ student: studentId }).populate({ path: "test", select: "title testDate maxMarks", populate: { path: "subject", select: "name" } }).sort("-test.testDate")
   ]);
 
+  // --- Deduplicate existing duplicate Fee records for this student ---
+  const uniqueTenuresMap = new Map();
+  const duplicateIdsToDelete = [];
+
+  for (const t of monthlyTenures) {
+    const pStart = new Date(t.periodStart);
+    const key = `${pStart.getUTCFullYear()}-${pStart.getUTCMonth() + 1}`;
+    
+    if (!uniqueTenuresMap.has(key)) {
+      uniqueTenuresMap.set(key, t);
+    } else {
+      const existing = uniqueTenuresMap.get(key);
+      const existingPaid = (existing.payments || []).reduce((sum, p) => sum + p.amount, 0);
+      const currentPaid = (t.payments || []).reduce((sum, p) => sum + p.amount, 0);
+
+      if (currentPaid > existingPaid) {
+        duplicateIdsToDelete.push(existing._id);
+        uniqueTenuresMap.set(key, t);
+      } else {
+        duplicateIdsToDelete.push(t._id);
+      }
+    }
+  }
+
+  if (duplicateIdsToDelete.length > 0) {
+    await Fee.deleteMany({ _id: { $in: duplicateIdsToDelete } });
+    console.log(`[FEE DEDUPLICATION] Removed ${duplicateIdsToDelete.length} duplicate fee record(s) for student ${studentId}`);
+    monthlyTenures = Array.from(uniqueTenuresMap.values());
+  }
+
   // --- Auto-Generate Missing Tenures ---
   const admissionDate = student.admissionDate ? new Date(student.admissionDate) : new Date(student.createdAt);
   const effectiveMonthlyFee = student.monthlyFee || (monthlyTenures.length > 0 ? monthlyTenures[0].totalAmount : 0);
 
   if (effectiveMonthlyFee > 0) {
     let currentStart = new Date(admissionDate);
-    currentStart.setHours(0, 0, 0, 0);
+    currentStart.setUTCDate(1);
+    currentStart.setUTCHours(0, 0, 0, 0);
     
     const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    today.setUTCHours(0, 0, 0, 0);
     
     let generatedNew = false;
 
     // Continue generating tenures until current date falls before the next tenure start date
     while (currentStart <= today) {
       let currentEnd = new Date(currentStart);
-      currentEnd.setMonth(currentEnd.getMonth() + 1);
-      currentEnd.setDate(currentEnd.getDate() - 1);
+      currentEnd.setUTCMonth(currentEnd.getUTCMonth() + 1);
+      currentEnd.setUTCDate(currentEnd.getUTCDate() - 1);
 
       const exists = monthlyTenures.some(t => {
-        const tStart = new Date(t.periodStart);
-        tStart.setHours(0, 0, 0, 0);
-        return tStart.getTime() === currentStart.getTime();
+        const tDate = new Date(t.periodStart);
+        return (
+          tDate.getUTCFullYear() === currentStart.getUTCFullYear() &&
+          tDate.getUTCMonth() === currentStart.getUTCMonth()
+        );
       });
 
       if (!exists) {
@@ -192,7 +225,7 @@ export const getStudentProfile = asyncHandler(async (req, res) => {
       }
 
       currentStart = new Date(currentStart);
-      currentStart.setMonth(currentStart.getMonth() + 1);
+      currentStart.setUTCMonth(currentStart.getUTCMonth() + 1);
     }
 
     if (generatedNew) {
