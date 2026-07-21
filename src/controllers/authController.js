@@ -32,36 +32,97 @@ const getSwitchableProfiles = async (user, profile) => {
 };
 
 export const login = asyncHandler(async (req, res) => {
-  let { username, password } = req.body;
+  const { username, identifier, email, teacherId, studentId, loginId, password } = req.body;
+  const rawIdentifier = username || identifier || email || teacherId || studentId || loginId;
 
-  if (!username || !password) {
+  console.log("=========================================");
+  console.log(`[AUTH LOGIN] Request received at ${new Date().toISOString()}`);
+  console.log("[AUTH LOGIN] Raw Request Body:", { username, identifier, email, teacherId, studentId, loginId, passwordLength: password ? password.length : 0 });
+
+  if (!rawIdentifier || !password) {
     res.status(400);
-    throw new Error("Username and password are required");
+    throw new Error("Username/ID and password are required");
   }
 
-  const cleanUsername = String(username).trim();
+  const cleanIdentifier = String(rawIdentifier).trim();
+  const escapedRegex = cleanIdentifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const caseInsensitiveRegex = new RegExp(`^${escapedRegex}$`, "i");
 
-  const user = await User.findOne({
+  // 1. Direct User lookup by username, email, or phone
+  let user = await User.findOne({
     $or: [
-      { username: cleanUsername },
-      { username: cleanUsername.toLowerCase() },
-      { username: cleanUsername.toUpperCase() },
-      { email: cleanUsername.toLowerCase() },
-      { phone: cleanUsername }
+      { username: cleanIdentifier },
+      { username: cleanIdentifier.toLowerCase() },
+      { username: cleanIdentifier.toUpperCase() },
+      { email: cleanIdentifier.toLowerCase() },
+      { phone: cleanIdentifier }
     ]
   }).select("+passwordHash");
 
-  if (!user || !(await user.matchPassword(password))) {
-    res.status(401);
-    throw new Error("Invalid username or password");
+  // 2. If not found directly, lookup by Student ID (e.g. KC-2026-00001)
+  if (!user) {
+    const studentDoc = await Student.findOne({ studentId: caseInsensitiveRegex }).populate("user");
+    if (studentDoc?.user) {
+      user = await User.findById(studentDoc.user._id || studentDoc.user).select("+passwordHash");
+      console.log(`[AUTH LOGIN] Matched user via Student ID (${cleanIdentifier}) -> User ID: ${user?._id}`);
+    }
+  }
+
+  // 3. If still not found, lookup by Teacher Employee ID (e.g. EMP-001)
+  if (!user) {
+    const teacherDoc = await Teacher.findOne({ employeeId: caseInsensitiveRegex }).populate("user");
+    if (teacherDoc?.user) {
+      user = await User.findById(teacherDoc.user._id || teacherDoc.user).select("+passwordHash");
+      console.log(`[AUTH LOGIN] Matched user via Teacher Employee ID (${cleanIdentifier}) -> User ID: ${user?._id}`);
+    }
+  }
+
+  console.log("[AUTH LOGIN] User Search Result:", user ? { id: user._id, username: user.username, role: user.role, isActive: user.isActive } : "USER NOT FOUND");
+
+  if (!user) {
+    res.status(404);
+    throw new Error("User account not found");
   }
 
   if (!user.isActive) {
     res.status(403);
-    throw new Error("User account is inactive");
+    throw new Error("Account is inactive. Please contact administration.");
   }
 
-  // Update lastLogin
+  let passwordMatch = await user.matchPassword(password);
+
+  // If initial password match fails and user is a Student, attempt flexible DOB format resolution
+  if (!passwordMatch && (user.role === "STUDENT" || user.role === "student")) {
+    const rawDigits = String(password).replace(/\D/g, "");
+    if (rawDigits.length === 8) {
+      // Try raw 8-digit representation (e.g. 15052008)
+      passwordMatch = await user.matchPassword(rawDigits);
+      
+      // Handle YYYY-MM-DD or DD-MM-YYYY formatted date strings
+      if (!passwordMatch && (password.includes("-") || password.includes("/"))) {
+        const parts = password.split(/[-/]/);
+        if (parts.length === 3) {
+          let day, month, year;
+          if (parts[0].length === 4) {
+            year = parts[0]; month = parts[1].padStart(2, "0"); day = parts[2].padStart(2, "0");
+          } else {
+            day = parts[0].padStart(2, "0"); month = parts[1].padStart(2, "0"); year = parts[2];
+          }
+          const ddmmyyyy = `${day}${month}${year}`;
+          passwordMatch = await user.matchPassword(ddmmyyyy);
+        }
+      }
+    }
+  }
+
+  console.log(`[AUTH LOGIN] Password Verification Result for '${user.username}': ${passwordMatch ? "MATCH SUCCESS" : "MATCH FAILED"}`);
+
+  if (!passwordMatch) {
+    res.status(401);
+    throw new Error("Incorrect password");
+  }
+
+  // Update lastLogin timestamp
   user.lastLogin = new Date();
   await user.save();
 
@@ -70,6 +131,8 @@ export const login = asyncHandler(async (req, res) => {
   const switchableProfiles = await getSwitchableProfiles(user, profile);
 
   const token = signToken(user);
+  console.log(`[AUTH LOGIN] Login successful! Issued JWT token for user: ${user.username} (${user.role})`);
+  console.log("=========================================");
 
   res.json({
     token,

@@ -108,11 +108,14 @@ app.use(notFound);
 app.use(errorHandler);
 import { startTestCleanupCron } from "./cron/testCleanup.js";
 
+import { ensureDefaultAdmin } from "./utils/initAdmin.js";
+
 const port = process.env.PORT || 5000;
 
 const startServer = async () => {
   try {
     await connectDB();
+    await ensureDefaultAdmin();
     await seedDefaultTemplates();
     app.listen(port, () => {
       console.log(`API running on port ${port}`);
