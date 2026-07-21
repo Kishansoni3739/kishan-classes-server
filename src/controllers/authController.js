@@ -39,7 +39,13 @@ export const login = asyncHandler(async (req, res) => {
     throw new Error("Username and password are required");
   }
 
-  const user = await User.findOne({ username }).select("+passwordHash");
+  const user = await User.findOne({
+    $or: [
+      { username: username },
+      { username: username.toLowerCase() },
+      { username: username.toUpperCase() }
+    ]
+  }).select("+passwordHash");
 
   if (!user || !(await user.matchPassword(password))) {
     res.status(401);

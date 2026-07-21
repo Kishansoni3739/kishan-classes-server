@@ -216,9 +216,9 @@ export const getStudentProfile = asyncHandler(async (req, res) => {
 
 const formatDOB = (dob) => {
   const d = new Date(dob);
-  const day = String(d.getDate()).padStart(2, '0');
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const year = d.getFullYear();
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const year = d.getUTCFullYear();
   return `${day}${month}${year}`;
 };
 
@@ -348,6 +348,50 @@ export const updateStudent = asyncHandler(async (req, res) => {
     new: true,
     runValidators: true
   });
+
+  // Sync opening balance dues
+  const oldBalance = oldStudent.openingBalance || 0;
+  const newBalance = student.openingBalance || 0;
+  if (newBalance !== oldBalance) {
+    const openingFee = await Fee.findOne({
+      student: student._id,
+      $expr: { $eq: ["$periodStart", "$periodEnd"] }
+    });
+
+    if (openingFee) {
+      if (newBalance > 0) {
+        openingFee.totalAmount = newBalance;
+        const paid = openingFee.payments?.filter(p => !p.status || p.status === "active").reduce((sum, p) => sum + p.amount, 0) || 0;
+        if (paid >= newBalance) {
+          openingFee.status = "paid";
+        } else if (paid > 0) {
+          openingFee.status = "partial";
+        } else {
+          openingFee.status = "pending";
+        }
+        await openingFee.save();
+      } else {
+        if (!openingFee.payments || openingFee.payments.length === 0) {
+          await Fee.findByIdAndDelete(openingFee._id);
+        } else {
+          openingFee.totalAmount = 0;
+          openingFee.status = "paid";
+          await openingFee.save();
+        }
+      }
+    } else if (newBalance > 0) {
+      const admissionDate = new Date(student.admissionDate || Date.now());
+      await Fee.create({
+        student: student._id,
+        totalAmount: newBalance,
+        periodStart: admissionDate,
+        periodEnd: admissionDate,
+        dueDate: admissionDate,
+        status: "pending",
+        payments: []
+      });
+    }
+  }
 
   if (name || email !== undefined || phone || dobUpdated) {
     const user = await User.findById(student.user);
