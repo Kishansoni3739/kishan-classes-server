@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "nodemon src/index.js",
     "start": "node src/index.js",
-    "seed": "node src/seed/seed.js"
+    "seed": "node scripts/seedFull.js"
   },
   "dependencies": {
     "axios": "^1.18.1",

@@ -10,8 +10,6 @@ import rateLimit from "express-rate-limit";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { connectDB } from "./config/db.js";
-import { Student } from "./models/Student.js";
-import { MonthlyEnrollment } from "./models/MonthlyEnrollment.js";
 import { errorHandler, notFound } from "./middleware/errorMiddleware.js";
 import authRoutes from "./routes/authRoutes.js";
 import studentRoutes from "./routes/studentRoutes.js";

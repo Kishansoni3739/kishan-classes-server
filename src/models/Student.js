@@ -28,6 +28,7 @@ const studentSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+studentSchema.index({ "guardian.phone": 1 });
 studentSchema.index({ studentId: "text", "guardian.name": "text", address: "text" });
 
 export const Student = mongoose.model("Student", studentSchema);

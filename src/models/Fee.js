@@ -27,8 +27,8 @@ const feeSchema = new mongoose.Schema(
     payments: [paymentSchema],
     status: { type: String, enum: ["pending", "partial", "paid", "overdue"], default: "pending", index: true }
   },
-  { timestamps: true }
-);
+feeSchema.index({ student: 1, periodStart: 1 });
+feeSchema.index({ student: 1, status: 1 });
 
 feeSchema.pre("save", function(next) {
   const activePayments = this.payments.filter(p => !p.status || p.status === "active");
