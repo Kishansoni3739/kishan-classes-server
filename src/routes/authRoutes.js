@@ -1,5 +1,5 @@
 import express from "express";
-import { login, me } from "../controllers/authController.js";
+import { login, me, switchProfile } from "../controllers/authController.js";
 import { protect } from "../middleware/authMiddleware.js";
 import rateLimit from "express-rate-limit";
 
@@ -16,5 +16,6 @@ const router = express.Router();
 router.post("/login", loginLimiter, login);
 router.post("/logout", (req, res) => res.json({ message: "Logged out successfully" }));
 router.get("/me", protect, me);
+router.post("/switch-profile", protect, switchProfile);
 
 export default router;

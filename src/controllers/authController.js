@@ -14,6 +14,23 @@ const profileFor = async (user) => {
   return null;
 };
 
+const getSwitchableProfiles = async (user, profile) => {
+  const roleUpper = user.role?.toUpperCase();
+  if (roleUpper === "STUDENT" && profile && profile.guardian && profile.guardian.phone) {
+    const siblingStudents = await Student.find({
+      "guardian.phone": profile.guardian.phone,
+      _id: { $ne: profile._id }
+    }).populate("user");
+    return siblingStudents.map(s => ({
+      userId: s.user?._id,
+      studentId: s.studentId,
+      name: s.user?.name || s.studentId,
+      username: s.user?.username
+    }));
+  }
+  return [];
+};
+
 export const login = asyncHandler(async (req, res) => {
   const { username, password } = req.body;
 
@@ -40,6 +57,7 @@ export const login = asyncHandler(async (req, res) => {
 
   const profile = await profileFor(user);
   const name = profile ? (profile.user?.name || user.name || profile.name || user.username) : (user.name || user.username);
+  const switchableProfiles = await getSwitchableProfiles(user, profile);
 
   const token = signToken(user);
 
@@ -52,7 +70,8 @@ export const login = asyncHandler(async (req, res) => {
       name,
       mustChangePassword: user.mustChangePassword
     },
-    profile
+    profile,
+    switchableProfiles
   });
 });
 
@@ -65,6 +84,7 @@ export const me = asyncHandler(async (req, res) => {
 
   const profile = await profileFor(user);
   const name = profile ? (profile.user?.name || user.name || profile.name || user.username) : (user.name || user.username);
+  const switchableProfiles = await getSwitchableProfiles(user, profile);
 
   res.json({
     user: {
@@ -74,7 +94,8 @@ export const me = asyncHandler(async (req, res) => {
       role: user.role,
       mustChangePassword: user.mustChangePassword
     },
-    profile
+    profile,
+    switchableProfiles
   });
 });
 
@@ -133,4 +154,64 @@ export const teacherChangePassword = asyncHandler(async (req, res) => {
 
   await user.save();
   res.json({ message: "Teacher password changed successfully" });
+});
+
+export const switchProfile = asyncHandler(async (req, res) => {
+  const { targetUserId } = req.body;
+
+  if (!targetUserId) {
+    res.status(400);
+    throw new Error("Target user ID is required");
+  }
+
+  if (req.user.role?.toUpperCase() !== "STUDENT") {
+    res.status(403);
+    throw new Error("Only students can switch profiles");
+  }
+
+  const currentStudent = await Student.findOne({ user: req.user._id });
+  if (!currentStudent || !currentStudent.guardian || !currentStudent.guardian.phone) {
+    res.status(400);
+    throw new Error("Current student has no guardian contact info");
+  }
+
+  const targetStudent = await Student.findOne({ user: targetUserId }).populate("user");
+  if (!targetStudent) {
+    res.status(404);
+    throw new Error("Target student not found");
+  }
+
+  if (targetStudent.guardian?.phone !== currentStudent.guardian.phone) {
+    res.status(403);
+    throw new Error("You do not have permission to switch to this profile");
+  }
+
+  const targetUser = targetStudent.user;
+  if (!targetUser) {
+    res.status(404);
+    throw new Error("Target user credentials not found");
+  }
+
+  if (!targetUser.isActive) {
+    res.status(403);
+    throw new Error("Target user account is inactive");
+  }
+
+  const token = signToken(targetUser);
+  const profile = await profileFor(targetUser);
+  const name = profile ? (profile.user?.name || targetUser.name || profile.name || targetUser.username) : (targetUser.name || targetUser.username);
+  const switchableProfiles = await getSwitchableProfiles(targetUser, profile);
+
+  res.json({
+    token,
+    role: targetUser.role,
+    user: {
+      id: targetUser._id,
+      username: targetUser.username,
+      name,
+      mustChangePassword: targetUser.mustChangePassword
+    },
+    profile,
+    switchableProfiles
+  });
 });
