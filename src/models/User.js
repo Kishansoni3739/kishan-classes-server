@@ -42,7 +42,10 @@ userSchema.pre("save", async function hashPassword(next) {
   next();
 });
 
-userSchema.methods.matchPassword = function matchPassword(candidate) {
+userSchema.methods.matchPassword = async function matchPassword(candidate) {
+  if (!candidate) return false;
+  const matchExact = await bcrypt.compare(candidate, this.passwordHash);
+  if (matchExact) return true;
   return bcrypt.compare(candidate.toLowerCase(), this.passwordHash);
 };
 

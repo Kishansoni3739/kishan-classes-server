@@ -32,18 +32,22 @@ const getSwitchableProfiles = async (user, profile) => {
 };
 
 export const login = asyncHandler(async (req, res) => {
-  const { username, password } = req.body;
+  let { username, password } = req.body;
 
   if (!username || !password) {
     res.status(400);
     throw new Error("Username and password are required");
   }
 
+  const cleanUsername = String(username).trim();
+
   const user = await User.findOne({
     $or: [
-      { username: username },
-      { username: username.toLowerCase() },
-      { username: username.toUpperCase() }
+      { username: cleanUsername },
+      { username: cleanUsername.toLowerCase() },
+      { username: cleanUsername.toUpperCase() },
+      { email: cleanUsername.toLowerCase() },
+      { phone: cleanUsername }
     ]
   }).select("+passwordHash");
 
