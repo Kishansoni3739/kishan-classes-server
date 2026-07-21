@@ -43,10 +43,15 @@ userSchema.pre("save", async function hashPassword(next) {
 });
 
 userSchema.methods.matchPassword = async function matchPassword(candidate) {
-  if (!candidate) return false;
-  const matchExact = await bcrypt.compare(candidate, this.passwordHash);
+  if (!candidate || typeof candidate !== "string") return false;
+  const str = candidate.trim();
+  const matchExact = await bcrypt.compare(str, this.passwordHash);
   if (matchExact) return true;
-  return bcrypt.compare(candidate.toLowerCase(), this.passwordHash);
+  const lower = str.toLowerCase();
+  if (lower !== str) {
+    return bcrypt.compare(lower, this.passwordHash);
+  }
+  return false;
 };
 
 export const User = mongoose.model("User", userSchema);

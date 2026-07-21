@@ -93,25 +93,30 @@ export const login = asyncHandler(async (req, res) => {
 
   // If initial password match fails and user is a Student, attempt flexible DOB format resolution
   if (!passwordMatch && (user.role === "STUDENT" || user.role === "student")) {
+    const candidateVariants = new Set();
     const rawDigits = String(password).replace(/\D/g, "");
     if (rawDigits.length === 8) {
-      // Try raw 8-digit representation (e.g. 15052008)
-      passwordMatch = await user.matchPassword(rawDigits);
-      
-      // Handle YYYY-MM-DD or DD-MM-YYYY formatted date strings
-      if (!passwordMatch && (password.includes("-") || password.includes("/"))) {
-        const parts = password.split(/[-/]/);
-        if (parts.length === 3) {
-          let day, month, year;
-          if (parts[0].length === 4) {
-            year = parts[0]; month = parts[1].padStart(2, "0"); day = parts[2].padStart(2, "0");
-          } else {
-            day = parts[0].padStart(2, "0"); month = parts[1].padStart(2, "0"); year = parts[2];
-          }
-          const ddmmyyyy = `${day}${month}${year}`;
-          passwordMatch = await user.matchPassword(ddmmyyyy);
+      candidateVariants.add(rawDigits);
+    }
+    if (password.includes("-") || password.includes("/")) {
+      const parts = password.split(/[-/]/);
+      if (parts.length === 3) {
+        let day, month, year;
+        if (parts[0].length === 4) {
+          year = parts[0]; month = parts[1].padStart(2, "0"); day = parts[2].padStart(2, "0");
+        } else {
+          day = parts[0].padStart(2, "0"); month = parts[1].padStart(2, "0"); year = parts[2];
         }
+        candidateVariants.add(`${day}${month}${year}`);
+        candidateVariants.add(`${day}-${month}-${year}`);
+        candidateVariants.add(`${year}-${month}-${day}`);
       }
+    }
+    candidateVariants.delete(String(password).trim());
+
+    for (const variant of candidateVariants) {
+      passwordMatch = await user.matchPassword(variant);
+      if (passwordMatch) break;
     }
   }
 
