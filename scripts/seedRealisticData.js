@@ -41,9 +41,11 @@ async function seed() {
   const createdTeachers = [];
   for (let i = 0; i < 12; i++) {
     const name = generateName();
-    const user = await User.create({ name, email: generateEmail(name), phone: generatePhone(), role: "teacher", password: "password123" });
+    const empId = `TCH${100+i}`;
+    const firstName = name.trim().split(/\s+/)[0];
+    const user = await User.create({ name, username: empId, email: generateEmail(name), phone: generatePhone(), role: "teacher", password: firstName, mustChangePassword: true });
     const teacher = await Teacher.create({
-      user: user._id, employeeId: `TCH${100+i}`, subject: randomItem(subjects),
+      user: user._id, employeeId: empId, subject: randomItem(subjects),
       joiningDate: randomDate(new Date(2023, 0, 1), new Date(2025, 11, 31)), salary: randomInt(20000, 50000),
       status: "active"
     });

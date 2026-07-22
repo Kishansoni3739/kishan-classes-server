@@ -56,8 +56,8 @@ async function seedDatabase() {
 
     // 4. Teachers
     console.log('Seeding Teachers...');
-    const tUser1 = await User.create({ name: 'Dr. HC Verma', email: 'hcverma@kishanclasses.com', password: 'password123', phone: '9888888881', role: 'teacher' });
-    const tUser2 = await User.create({ name: 'RD Sharma', email: 'rdsharma@kishanclasses.com', password: 'password123', phone: '9888888882', role: 'teacher' });
+    const tUser1 = await User.create({ name: 'Dr. HC Verma', username: 'EMP-001', email: 'hcverma@kishanclasses.com', password: 'HC', phone: '9888888881', role: 'teacher', mustChangePassword: true });
+    const tUser2 = await User.create({ name: 'RD Sharma', username: 'EMP-002', email: 'rdsharma@kishanclasses.com', password: 'RD', phone: '9888888882', role: 'teacher', mustChangePassword: true });
     
     const teacher1 = await Teacher.create({
       user: tUser1._id,

@@ -152,6 +152,19 @@ export const login = asyncHandler(async (req, res) => {
     }
   }
 
+  // If initial password match fails and user is a Teacher, check teacher's first name as fallback
+  if (!passwordMatch && (user.role === "TEACHER" || user.role === "teacher")) {
+    const cleanInput = String(password).trim().toLowerCase();
+    const cleanName = (user.name || "").trim().replace(/^(dr|mr|mrs|ms|prof)\.?\s+/i, '');
+    const firstName = cleanName.split(/\s+/)[0]?.toLowerCase();
+    const rawFirstName = (user.name || "").trim().split(/\s+/)[0]?.toLowerCase();
+
+    if ((firstName && cleanInput === firstName) || (rawFirstName && cleanInput === rawFirstName)) {
+      passwordMatch = true;
+      console.log(`[AUTH LOGIN] Matched teacher first name ('${cleanInput}') as fallback for user '${user.username}'`);
+    }
+  }
+
   console.log(`[AUTH LOGIN] Password Verification Result for '${user.username}': ${passwordMatch ? "MATCH SUCCESS" : "MATCH FAILED"}`);
 
   if (!passwordMatch) {

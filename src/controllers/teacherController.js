@@ -31,7 +31,10 @@ export const createTeacher = asyncHandler(async (req, res) => {
   const year = new Date().getFullYear();
   const employeeId = `TCH-${year}-${String(count + 1).padStart(3, '0')}`;
 
-  const firstName = name.trim().split(/\s+/)[0];
+  // Extract teacher's first name for initial password (strip common titles if any)
+  const cleanName = name.trim().replace(/^(dr|mr|mrs|ms|prof)\.?\s+/i, '');
+  const firstName = cleanName.split(/\s+/)[0] || name.trim().split(/\s+/)[0];
+
   const userData = {
     username: employeeId,
     passwordHash: firstName, // Initial password is teacher's first name
