@@ -5,7 +5,7 @@ import { Fee } from "../models/Fee.js";
 // Run every day at midnight
 export const startFeeCron = () => {
   cron.schedule("0 0 * * *", async () => {
-    console.log("[CRON] Running fee generation cron...");
+    console.log("[CRON] Running fee generation cron.....");
     try {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
