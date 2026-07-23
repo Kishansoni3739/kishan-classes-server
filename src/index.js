@@ -39,35 +39,33 @@ const app = express();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" }, crossOriginOpenerPolicy: false }));
-app.use(compression());
+// Production-ready CORS setup supporting Vercel, Capacitor, and Localhost
+const allowedOrigins = [
+  "https://kishan-classes-rosy.vercel.app",
+  "http://localhost:5173",
+  "http://localhost:5000",
+  "http://127.0.0.1:5173",
+  "capacitor://localhost",
+  "https://localhost",
+  "http://localhost"
+];
 
-// Flexible & Secure Production CORS Setup
 const isAllowedOrigin = (origin) => {
   if (!origin) return true; // Allow non-browser requests (mobile native, Postman, curl)
 
-  const allowedStaticOrigins = [
-    "https://kishan-classes-rosy.vercel.app",
-    "https://kishan-classes.vercel.app",
-    "capacitor://localhost",
-    "https://localhost",
-    "http://localhost",
-    "http://localhost:5173",
-    "http://localhost:5000",
-    "http://127.0.0.1:5173"
-  ];
+  const cleanOrigin = origin.trim().replace(/\/$/, "");
 
-  if (allowedStaticOrigins.includes(origin)) return true;
+  if (allowedOrigins.includes(cleanOrigin)) return true;
 
-  // Allow all Vercel deployment origins (*.vercel.app)
-  if (origin.endsWith(".vercel.app") || /\.vercel\.app$/.test(origin)) {
+  // Allow all Vercel deployment subdomains (*.vercel.app)
+  if (cleanOrigin.endsWith(".vercel.app") || /\.vercel\.app$/.test(cleanOrigin)) {
     return true;
   }
 
-  // Allow origins specified in CLIENT_URL env variable (comma-separated or wildcard '*')
+  // Allow origins specified in CLIENT_URL environment variable
   if (process.env.CLIENT_URL) {
-    const customOrigins = process.env.CLIENT_URL.split(",").map((o) => o.trim());
-    if (customOrigins.includes("*") || customOrigins.includes(origin)) {
+    const customOrigins = process.env.CLIENT_URL.split(",").map((o) => o.trim().replace(/\/$/, ""));
+    if (customOrigins.includes("*") || customOrigins.includes(cleanOrigin)) {
       return true;
     }
   }
@@ -75,44 +73,33 @@ const isAllowedOrigin = (origin) => {
   return false;
 };
 
-const allowedOrigins = [
-  "https://kishan-classes-rosy.vercel.app",
-  "https://localhost",
-  "http://localhost",
-  "capacitor://localhost"
-];
-
-if (process.env.CLIENT_URL) {
-  process.env.CLIENT_URL.split(",").forEach(origin => {
-    const url = origin.trim();
-    if (url && !allowedOrigins.includes(url)) {
-      allowedOrigins.push(url);
-    }
-  });
-}
-
-app.use(cors({
-  origin(origin, callback) {
-    // Allow Postman, mobile apps, server-to-server requests
-    if (!origin) return callback(null, true);
-
-    if (allowedOrigins.includes(origin)) {
+const corsOptions = {
+  origin: (origin, callback) => {
+    if (isAllowedOrigin(origin)) {
       return callback(null, true);
     }
-
-    console.log("Blocked Origin:", origin);
-    callback(new Error(`Origin ${origin} not allowed`));
+    console.warn(`[CORS REJECTED] Origin "${origin}" is not in allowed origins.`);
+    // Returning false instead of an Error prevents Express from crashing preflight headers
+    return callback(null, false);
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: [
+    "Origin",
+    "X-Requested-With",
     "Content-Type",
-    "Authorization",
-    "X-Requested-With"
-  ]
-}));
+    "Accept",
+    "Authorization"
+  ],
+  optionsSuccessStatus: 200
+};
 
-app.options("*", cors());
+// 1. CORS MUST BE FIRST MIDDLEWARE IN PIPELINE
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions));
+
+app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" }, crossOriginOpenerPolicy: false }));
+app.use(compression());
 
 app.get("/health", (_req, res) => {
   res.json({ status: "ok", service: "kishan-classes-api" });
