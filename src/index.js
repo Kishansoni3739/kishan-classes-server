@@ -39,49 +39,25 @@ const app = express();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Production-ready CORS setup supporting Vercel, Capacitor, and Localhost
-const allowedOrigins = [
-  "https://kishan-classes-rosy.vercel.app",
-  "http://localhost:5173",
-  "http://localhost:5000",
-  "http://127.0.0.1:5173",
-  "capacitor://localhost",
-  "https://localhost",
-  "http://localhost"
-];
-
-const isAllowedOrigin = (origin) => {
-  if (!origin) return true; // Allow non-browser requests (mobile native, Postman, curl)
-
-  const cleanOrigin = origin.trim().replace(/\/$/, "");
-
-  if (allowedOrigins.includes(cleanOrigin)) return true;
-
-  // Allow all Vercel deployment subdomains (*.vercel.app)
-  if (cleanOrigin.endsWith(".vercel.app") || /\.vercel\.app$/.test(cleanOrigin)) {
-    return true;
+// 1. BULLETPROOF CORS & OPTIONS PREFLIGHT MIDDLEWARE (Must be first in pipeline)
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization");
   }
 
-  // Allow origins specified in CLIENT_URL environment variable
-  if (process.env.CLIENT_URL) {
-    const customOrigins = process.env.CLIENT_URL.split(",").map((o) => o.trim().replace(/\/$/, ""));
-    if (customOrigins.includes("*") || customOrigins.includes(cleanOrigin)) {
-      return true;
-    }
+  // Immediately respond to preflight OPTIONS requests with 200 OK
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
   }
-
-  return false;
-};
+  next();
+});
 
 const corsOptions = {
-  origin: (origin, callback) => {
-    if (isAllowedOrigin(origin)) {
-      return callback(null, true);
-    }
-    console.warn(`[CORS REJECTED] Origin "${origin}" is not in allowed origins.`);
-    // Returning false instead of an Error prevents Express from crashing preflight headers
-    return callback(null, false);
-  },
+  origin: (origin, callback) => callback(null, origin || true),
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: [
@@ -94,7 +70,6 @@ const corsOptions = {
   optionsSuccessStatus: 200
 };
 
-// 1. CORS MUST BE FIRST MIDDLEWARE IN PIPELINE
 app.use(cors(corsOptions));
 app.options("*", cors(corsOptions));
 
