@@ -75,34 +75,44 @@ const isAllowedOrigin = (origin) => {
   return false;
 };
 
-const corsOptions = {
-  origin: function (origin, callback) {
-    if (isAllowedOrigin(origin)) {
+const allowedOrigins = [
+  "https://kishan-classes-rosy.vercel.app",
+  "https://localhost",
+  "http://localhost",
+  "capacitor://localhost"
+];
+
+if (process.env.CLIENT_URL) {
+  process.env.CLIENT_URL.split(",").forEach(origin => {
+    const url = origin.trim();
+    if (url && !allowedOrigins.includes(url)) {
+      allowedOrigins.push(url);
+    }
+  });
+}
+
+app.use(cors({
+  origin(origin, callback) {
+    // Allow Postman, mobile apps, server-to-server requests
+    if (!origin) return callback(null, true);
+
+    if (allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
-    console.warn(`[CORS REJECTED] Origin "${origin}" is not allowed.`);
-    return callback(null, false);
+
+    console.log("Blocked Origin:", origin);
+    callback(new Error(`Origin ${origin} not allowed`));
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept", "Origin"],
-  optionsSuccessStatus: 200
-};
+  allowedHeaders: [
+    "Content-Type",
+    "Authorization",
+    "X-Requested-With"
+  ]
+}));
 
-app.use(cors(corsOptions));
-app.options("*", cors(corsOptions));
-
-app.use(express.json({ limit: "2mb" }));
-app.use(express.urlencoded({ extended: true }));
-app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"));
-app.use(
-  rateLimit({
-    windowMs: 15 * 60 * 1000,
-    limit: 500,
-    standardHeaders: true,
-    legacyHeaders: false
-  })
-);
+app.options("*", cors());
 
 app.get("/health", (_req, res) => {
   res.json({ status: "ok", service: "kishan-classes-api" });
