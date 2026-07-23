@@ -42,13 +42,23 @@ const getSwitchableProfiles = async (user, profile) => {
 };
 
 export const login = asyncHandler(async (req, res) => {
+  console.log("=========================================");
+  console.log(`[AUTH LOGIN] Request received at ${new Date().toISOString()}`);
+  console.log("[AUTH LOGIN] Headers:", req.headers);
+  console.log("[AUTH LOGIN] Content-Type:", req.headers["content-type"]);
+  console.log("[AUTH LOGIN] Body:", req.body);
+
+  if (!req.body || typeof req.body !== "object") {
+    console.error("[AUTH LOGIN ERROR] req.body is undefined or invalid");
+    res.status(400);
+    throw new Error("Request body missing or invalid JSON");
+  }
+
   const { username, identifier, email, teacherId, studentId, loginId, password, role } = req.body;
   const rawIdentifier = username || identifier || email || teacherId || studentId || loginId;
   const requestedRole = String(role || "").trim().toLowerCase();
 
-  console.log("=========================================");
-  console.log(`[AUTH LOGIN] Request received at ${new Date().toISOString()}`);
-  console.log("[AUTH LOGIN] Raw Request Body:", { username, identifier, email, teacherId, studentId, loginId, role: requestedRole, passwordLength: password ? password.length : 0 });
+  console.log("[AUTH LOGIN] Parsed credentials:", { username, identifier, email, teacherId, studentId, loginId, role: requestedRole, passwordLength: password ? password.length : 0 });
 
   if (!requestedRole || !["admin", "teacher", "student"].includes(requestedRole)) {
     res.status(400);
@@ -256,7 +266,7 @@ export const me = asyncHandler(async (req, res) => {
 });
 
 export const adminChangeCredentials = asyncHandler(async (req, res) => {
-  const { username, password } = req.body;
+  const { username, password } = req.body || {};
 
   if (req.user.role !== "admin") {
     res.status(403);
@@ -287,7 +297,7 @@ export const adminChangeCredentials = asyncHandler(async (req, res) => {
 });
 
 export const teacherChangePassword = asyncHandler(async (req, res) => {
-  const { password } = req.body;
+  const { password } = req.body || {};
 
   if (!password || password.trim() === "") {
     res.status(400);
@@ -313,7 +323,7 @@ export const teacherChangePassword = asyncHandler(async (req, res) => {
 });
 
 export const switchProfile = asyncHandler(async (req, res) => {
-  const { targetUserId } = req.body;
+  const { targetUserId } = req.body || {};
 
   if (!targetUserId) {
     res.status(400);
