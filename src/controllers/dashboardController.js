@@ -44,6 +44,12 @@ export const adminDashboard = asyncHandler(async (req, res) => {
     .populate("batch", "name")
     .sort("testDate")
     .limit(10);
+
+  const recentTests = await Test.find()
+    .populate("subject", "name")
+    .populate("batch", "name")
+    .sort("-testDate")
+    .limit(10);
     
   const todaysTests = await Test.find({ testDate: { $gte: todayStart, $lt: tomorrow } })
     .populate("subject", "name")
@@ -217,6 +223,7 @@ export const adminDashboard = asyncHandler(async (req, res) => {
       todayTests: todayTestsCount
     },
     upcomingTests,
+    recentTests,
     feesDueStudents,
     upcomingDueDates,
     topPerformers,
