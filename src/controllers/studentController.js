@@ -185,25 +185,24 @@ export const getStudentProfile = asyncHandler(async (req, res) => {
 
   if (effectiveMonthlyFee > 0) {
     let currentStart = new Date(admissionDate);
-    currentStart.setUTCDate(1);
-    currentStart.setUTCHours(0, 0, 0, 0);
+    currentStart.setHours(0, 0, 0, 0);
     
     const today = new Date();
-    today.setUTCHours(0, 0, 0, 0);
+    today.setHours(0, 0, 0, 0);
     
     let generatedNew = false;
 
     // Continue generating tenures until current date falls before the next tenure start date
     while (currentStart <= today) {
       let currentEnd = new Date(currentStart);
-      currentEnd.setUTCMonth(currentEnd.getUTCMonth() + 1);
-      currentEnd.setUTCDate(currentEnd.getUTCDate() - 1);
+      currentEnd.setMonth(currentEnd.getMonth() + 1);
+      currentEnd.setDate(currentEnd.getDate() - 1);
 
       const exists = monthlyTenures.some(t => {
         const tDate = new Date(t.periodStart);
         return (
-          tDate.getUTCFullYear() === currentStart.getUTCFullYear() &&
-          tDate.getUTCMonth() === currentStart.getUTCMonth()
+          tDate.getFullYear() === currentStart.getFullYear() &&
+          tDate.getMonth() === currentStart.getMonth()
         );
       });
 
@@ -219,10 +218,28 @@ export const getStudentProfile = asyncHandler(async (req, res) => {
         });
         monthlyTenures.push(newFee);
         generatedNew = true;
+      } else {
+        // Correct existing unpaid fee if periodStart was set to 1st of month instead of admission date
+        const existingFee = monthlyTenures.find(t => {
+          const tDate = new Date(t.periodStart);
+          return (
+            tDate.getFullYear() === currentStart.getFullYear() &&
+            tDate.getMonth() === currentStart.getMonth()
+          );
+        });
+        if (existingFee && (!existingFee.payments || existingFee.payments.length === 0)) {
+          const existingStart = new Date(existingFee.periodStart);
+          if (existingStart.getDate() !== currentStart.getDate()) {
+            existingFee.periodStart = new Date(currentStart);
+            existingFee.periodEnd = new Date(currentEnd);
+            existingFee.dueDate = new Date(currentEnd);
+            await existingFee.save();
+          }
+        }
       }
 
-      currentStart = new Date(currentStart);
-      currentStart.setUTCMonth(currentStart.getUTCMonth() + 1);
+      currentStart = new Date(currentEnd);
+      currentStart.setDate(currentStart.getDate() + 1);
     }
 
     if (generatedNew) {
