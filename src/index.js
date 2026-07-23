@@ -83,6 +83,7 @@ app.get("/health", (_req, res) => {
 });
 
 app.use("/uploads", express.static(path.join(__dirname, "..", "uploads")));
+app.use("/AndroidFile", express.static(path.join(__dirname, "..", "AndroidFile")));
 app.use("/api/auth", authRoutes);
 app.use("/api/students", studentRoutes);
 app.use("/api/teachers", teacherRoutes);
