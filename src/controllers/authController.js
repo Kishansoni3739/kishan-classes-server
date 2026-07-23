@@ -32,16 +32,25 @@ const getSwitchableProfiles = async (user, profile) => {
 };
 
 export const login = asyncHandler(async (req, res) => {
-  const { username, identifier, email, teacherId, studentId, loginId, password } = req.body;
+  const { username, identifier, email, teacherId, studentId, loginId, password, role } = req.body;
   const rawIdentifier = username || identifier || email || teacherId || studentId || loginId;
+  const requestedRole = String(role || "").trim().toLowerCase();
 
   console.log("=========================================");
   console.log(`[AUTH LOGIN] Request received at ${new Date().toISOString()}`);
-  console.log("[AUTH LOGIN] Raw Request Body:", { username, identifier, email, teacherId, studentId, loginId, passwordLength: password ? password.length : 0 });
+  console.log("[AUTH LOGIN] Raw Request Body:", { username, identifier, email, teacherId, studentId, loginId, role: requestedRole, passwordLength: password ? password.length : 0 });
+
+  if (!requestedRole || !["admin", "teacher", "student"].includes(requestedRole)) {
+    res.status(400);
+    throw new Error("A valid login role (admin, teacher, or student) is required");
+  }
+
+  const roleTitle = requestedRole.charAt(0).toUpperCase() + requestedRole.slice(1);
+  const invalidCredentialsError = `Invalid ${roleTitle} credentials.`;
 
   if (!rawIdentifier || !password) {
-    res.status(400);
-    throw new Error("Username/ID and password are required");
+    res.status(401);
+    throw new Error(invalidCredentialsError);
   }
 
   const cleanIdentifier = String(rawIdentifier).trim();
@@ -60,7 +69,7 @@ export const login = asyncHandler(async (req, res) => {
   }).select("+passwordHash");
 
   // 2. If not found directly, lookup by Student ID (e.g. KC-2026-00001)
-  if (!user) {
+  if (!user && requestedRole === "student") {
     const studentDoc = await Student.findOne({ studentId: caseInsensitiveRegex }).populate("user");
     if (studentDoc?.user) {
       user = await User.findById(studentDoc.user._id || studentDoc.user).select("+passwordHash");
@@ -69,7 +78,7 @@ export const login = asyncHandler(async (req, res) => {
   }
 
   // 3. If still not found, lookup by Teacher Employee ID (e.g. EMP-001)
-  if (!user) {
+  if (!user && requestedRole === "teacher") {
     const teacherDoc = await Teacher.findOne({ employeeId: caseInsensitiveRegex }).populate("user");
     if (teacherDoc?.user) {
       user = await User.findById(teacherDoc.user._id || teacherDoc.user).select("+passwordHash");
@@ -79,11 +88,21 @@ export const login = asyncHandler(async (req, res) => {
 
   console.log("[AUTH LOGIN] User Search Result:", user ? { id: user._id, username: user.username, role: user.role, isActive: user.isActive } : "USER NOT FOUND");
 
+  // Immediate rejection if user account not found
   if (!user) {
-    res.status(404);
-    throw new Error("User account not found");
+    res.status(401);
+    throw new Error(invalidCredentialsError);
   }
 
+  // STRICT ROLE MATCHING: User DB role must equal requested login role
+  const dbRole = String(user.role || "").trim().toLowerCase();
+  if (dbRole !== requestedRole) {
+    console.log(`[AUTH LOGIN] REJECTED ROLE MISMATCH: User '${user.username}' has DB role '${dbRole}' but attempted login as '${requestedRole}'`);
+    res.status(401);
+    throw new Error(invalidCredentialsError);
+  }
+
+  // Account active verification
   if (!user.isActive) {
     res.status(403);
     throw new Error("Account is inactive. Please contact administration.");
@@ -169,7 +188,7 @@ export const login = asyncHandler(async (req, res) => {
 
   if (!passwordMatch) {
     res.status(401);
-    throw new Error("Incorrect password");
+    throw new Error(invalidCredentialsError);
   }
 
   // Update lastLogin timestamp

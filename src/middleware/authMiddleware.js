@@ -24,6 +24,12 @@ export const protect = asyncHandler(async (req, res, next) => {
     throw new Error("User is not authorized");
   }
 
+  // Strict check: Ensure token role claim matches user role in DB
+  if (decoded.role && user.role.toLowerCase() !== decoded.role.toLowerCase()) {
+    res.status(403);
+    throw new Error("Access forbidden. Token role mismatch.");
+  }
+
   user.roleOriginal = user.role;
   const roleLower = user.role.toLowerCase();
 
@@ -40,9 +46,11 @@ export const protect = asyncHandler(async (req, res, next) => {
 });
 
 export const authorize = (...roles) => (req, res, next) => {
-  if (!roles.includes(req.user.role)) {
+  const allowed = roles.map(r => String(r).toLowerCase());
+  const userRole = String(req.user?.role || "").toLowerCase();
+  if (!allowed.includes(userRole)) {
     res.status(403);
-    return next(new Error("You do not have permission to perform this action"));
+    return next(new Error("Access forbidden. Insufficient permissions for this role."));
   }
   next();
 };
