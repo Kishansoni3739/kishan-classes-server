@@ -5,8 +5,10 @@ export const notFound = (req, res, next) => {
 };
 
 export const errorHandler = (err, req, res, _next) => {
-  let statusCode = res.statusCode === 200 ? 500 : res.statusCode;
-  let message = err.message;
+  console.error(`[API ERROR] ${req.method} ${req.originalUrl}:`, err);
+
+  let statusCode = res.statusCode === 200 ? (err.statusCode || 500) : res.statusCode;
+  let message = err.message || "Internal Server Error";
 
   // Set CORS headers on error responses if request origin is present
   const origin = req.headers.origin;
@@ -22,11 +24,6 @@ export const errorHandler = (err, req, res, _next) => {
   } else if (err.name === "CastError" && err.kind === "ObjectId") {
     statusCode = 400;
     message = `Invalid ID format: ${err.value}`;
-  }
-
-  // Sanitization for production environment
-  if (process.env.NODE_ENV === "production" && statusCode === 500) {
-    message = "Internal Server Error";
   }
 
   res.status(statusCode).json({

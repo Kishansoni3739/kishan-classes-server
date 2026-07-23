@@ -5,30 +5,40 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 import { signToken } from "../utils/token.js";
 
 const profileFor = async (user) => {
-  if (user.role === "STUDENT" || user.role === "student") {
-    return Student.findOne({ user: user._id }).populate("subjects batch");
+  try {
+    if (user.role === "STUDENT" || user.role === "student") {
+      return await Student.findOne({ user: user._id }).populate("subjects batch");
+    }
+    if (user.role === "TEACHER" || user.role === "teacher") {
+      return await Teacher.findOne({ user: user._id }).populate("subjects batches");
+    }
+    return null;
+  } catch (err) {
+    console.warn("[AUTH CONTROLLER] Error fetching profile for user:", err.message);
+    return null;
   }
-  if (user.role === "TEACHER" || user.role === "teacher") {
-    return Teacher.findOne({ user: user._id }).populate("subjects batches");
-  }
-  return null;
 };
 
 const getSwitchableProfiles = async (user, profile) => {
-  const roleUpper = user.role?.toUpperCase();
-  if (roleUpper === "STUDENT" && profile && profile.guardian && profile.guardian.phone) {
-    const siblingStudents = await Student.find({
-      "guardian.phone": profile.guardian.phone,
-      _id: { $ne: profile._id }
-    }).populate("user");
-    return siblingStudents.map(s => ({
-      userId: s.user?._id,
-      studentId: s.studentId,
-      name: s.user?.name || s.studentId,
-      username: s.user?.username
-    }));
+  try {
+    const roleUpper = user.role?.toUpperCase();
+    if (roleUpper === "STUDENT" && profile && profile.guardian && profile.guardian.phone) {
+      const siblingStudents = await Student.find({
+        "guardian.phone": profile.guardian.phone,
+        _id: { $ne: profile._id }
+      }).populate("user");
+      return siblingStudents.map(s => ({
+        userId: s.user?._id,
+        studentId: s.studentId,
+        name: s.user?.name || s.studentId,
+        username: s.user?.username
+      }));
+    }
+    return [];
+  } catch (err) {
+    console.warn("[AUTH CONTROLLER] Error fetching switchable profiles:", err.message);
+    return [];
   }
-  return [];
 };
 
 export const login = asyncHandler(async (req, res) => {
@@ -191,9 +201,13 @@ export const login = asyncHandler(async (req, res) => {
     throw new Error(invalidCredentialsError);
   }
 
-  // Update lastLogin timestamp
-  user.lastLogin = new Date();
-  await user.save();
+  // Update lastLogin timestamp safely
+  try {
+    user.lastLogin = new Date();
+    await user.save({ validateBeforeSave: false });
+  } catch (saveErr) {
+    console.warn("[AUTH LOGIN] Failed to update lastLogin timestamp:", saveErr.message);
+  }
 
   const profile = await profileFor(user);
   const name = profile ? (profile.user?.name || user.name || profile.name || user.username) : (user.name || user.username);
