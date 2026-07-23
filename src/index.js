@@ -43,12 +43,19 @@ app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
 app.use(compression());
 
 // Strict Production CORS Setup
-const allowedOrigins = ["https://kishan-classes-rosy.vercel.app"];
+const allowedOrigins = [
+  "https://kishan-classes-rosy.vercel.app",
+  "capacitor://localhost",
+  "https://localhost",
+  "http://localhost"
+];
+
 if (process.env.NODE_ENV !== "production") {
   allowedOrigins.push("http://localhost:5173");
   allowedOrigins.push("http://localhost:5000");
   allowedOrigins.push("http://127.0.0.1:5173");
 }
+
 if (process.env.CLIENT_URL) {
   process.env.CLIENT_URL.split(",").forEach((origin) => {
     const trimmed = origin.trim();
@@ -58,18 +65,19 @@ if (process.env.CLIENT_URL) {
   });
 }
 
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      if (!origin) return callback(null, true);
-      if (allowedOrigins.includes(origin)) {
-        return callback(null, true);
-      }
-      return callback(new Error("CORS block: Request origin not allowed by production security policy"), false);
-    },
-    credentials: true
-  })
-);
+app.use(cors({
+  origin(origin, callback) {
+    if (!origin) return callback(null, true);
+
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    console.log("Blocked CORS Origin:", origin);
+    return callback(new Error(`Origin ${origin} not allowed by CORS`));
+  },
+  credentials: true,
+}));
 
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true }));
