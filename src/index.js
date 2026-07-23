@@ -39,45 +39,58 @@ const app = express();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
+app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" }, crossOriginOpenerPolicy: false }));
 app.use(compression());
 
-// Strict Production CORS Setup
-const allowedOrigins = [
-  "https://kishan-classes-rosy.vercel.app",
-  "capacitor://localhost",
-  "https://localhost",
-  "http://localhost"
-];
+// Flexible & Secure Production CORS Setup
+const isAllowedOrigin = (origin) => {
+  if (!origin) return true; // Allow non-browser requests (mobile native, Postman, curl)
 
-if (process.env.NODE_ENV !== "production") {
-  allowedOrigins.push("http://localhost:5173");
-  allowedOrigins.push("http://localhost:5000");
-  allowedOrigins.push("http://127.0.0.1:5173");
-}
+  const allowedStaticOrigins = [
+    "https://kishan-classes-rosy.vercel.app",
+    "https://kishan-classes.vercel.app",
+    "capacitor://localhost",
+    "https://localhost",
+    "http://localhost",
+    "http://localhost:5173",
+    "http://localhost:5000",
+    "http://127.0.0.1:5173"
+  ];
 
-if (process.env.CLIENT_URL) {
-  process.env.CLIENT_URL.split(",").forEach((origin) => {
-    const trimmed = origin.trim();
-    if (trimmed && !allowedOrigins.includes(trimmed)) {
-      allowedOrigins.push(trimmed);
+  if (allowedStaticOrigins.includes(origin)) return true;
+
+  // Allow all Vercel deployment origins (*.vercel.app)
+  if (origin.endsWith(".vercel.app") || /\.vercel\.app$/.test(origin)) {
+    return true;
+  }
+
+  // Allow origins specified in CLIENT_URL env variable (comma-separated or wildcard '*')
+  if (process.env.CLIENT_URL) {
+    const customOrigins = process.env.CLIENT_URL.split(",").map((o) => o.trim());
+    if (customOrigins.includes("*") || customOrigins.includes(origin)) {
+      return true;
     }
-  });
-}
+  }
 
-app.use(cors({
-  origin(origin, callback) {
-    if (!origin) return callback(null, true);
+  return false;
+};
 
-    if (allowedOrigins.includes(origin)) {
+const corsOptions = {
+  origin: function (origin, callback) {
+    if (isAllowedOrigin(origin)) {
       return callback(null, true);
     }
-
-    console.log("Blocked CORS Origin:", origin);
-    return callback(new Error(`Origin ${origin} not allowed by CORS`));
+    console.warn(`[CORS REJECTED] Origin "${origin}" is not allowed.`);
+    return callback(null, false);
   },
   credentials: true,
-}));
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept", "Origin"],
+  optionsSuccessStatus: 200
+};
+
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions));
 
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true }));
